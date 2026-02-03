@@ -1,0 +1,41 @@
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.env
+
+# Project specific
+cesc_sports_bolt-main/
+*.sqlite
+*.db
+server/*.db
+uploads/
+Image_Assets*
+.bolt/
+# Keep logo and executive committee images as they are essential for UI
+!logo/
+!executive comittee/
+
+# Local/Temp files
+output.txt
+large_files.txt
+large_files_clean.txt
+*.log
