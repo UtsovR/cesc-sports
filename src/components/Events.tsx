@@ -1,28 +1,34 @@
 import { Calendar, MapPin, Clock } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 export default function Events() {
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/events/upcoming')
-      .then(res => res.json())
-      .then(data => {
-        setEvents(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error('Failed to load events', err);
-        setLoading(false);
-      });
+    const fetchEvents = async () => {
+      const { data, error } = await supabase
+        .from('upcoming_events')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Failed to load events', error);
+      } else {
+        setEvents(data || []);
+      }
+      setLoading(false);
+    };
+
+    fetchEvents();
   }, []);
 
   const getImageUrl = (imagePath: string) => {
     if (imagePath.startsWith('http') || imagePath.startsWith('https')) {
       return imagePath;
     }
-    return `http://localhost:3000/uploads/${imagePath}`;
+    return supabase.storage.from('events').getPublicUrl(imagePath).data.publicUrl;
   };
 
   return (

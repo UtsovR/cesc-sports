@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { MessageSquare, Star, Send, User, Mail, Sparkles, Phone, Briefcase, MapPin, Building2 } from 'lucide-react';
 import BackButton from './BackButton';
+import { supabase } from '../lib/supabase';
 
 export default function Feedback() {
     const [formData, setFormData] = useState({
@@ -25,21 +26,23 @@ export default function Feedback() {
         setErrorMessage('');
 
         try {
-            const response = await fetch('http://localhost:3000/api/feedback', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData),
-            });
+            const { error } = await supabase
+                .from('feedbacks')
+                .insert([{
+                    name: formData.name || null,
+                    email: formData.email || null,
+                    employee_code: formData.employeeCode || null,
+                    contact_number: formData.contactNumber || null,
+                    location: formData.location || null,
+                    organization: formData.organisation || null,
+                    department: formData.department || null,
+                    experience_rating: formData.rating,
+                    feedback_type: formData.type,
+                    message: formData.message
+                }]);
 
-            const data = await response.json();
+            if (error) throw error;
 
-            if (!response.ok) {
-                throw new Error(data.error || 'Feedback submission failed');
-            }
-
-            console.log('Feedback submitted:', data);
             setStatus('success');
             setFormData({
                 name: '',
@@ -56,7 +59,7 @@ export default function Feedback() {
         } catch (error: any) {
             console.error('Feedback Error:', error);
             setStatus('error');
-            setErrorMessage(error.message);
+            setErrorMessage(error.message || 'Feedback submission failed');
         }
     };
 

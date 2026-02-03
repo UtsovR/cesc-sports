@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { User, Mail, Building2, Badge, Trophy, Send, CheckCircle, AlertCircle, MapPin } from 'lucide-react';
 import BackButton from './BackButton';
+import { supabase } from '../lib/supabase';
 
 export default function Registration() {
     const [formData, setFormData] = useState({
@@ -35,19 +36,21 @@ export default function Registration() {
         setErrorMessage('');
 
         try {
-            const response = await fetch('http://localhost:3000/api/register', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData),
-            });
+            const { error } = await supabase
+                .from('registrations')
+                .insert([{
+                    employee_code: formData.employeeCode,
+                    full_name: formData.name,
+                    location: formData.location,
+                    organization: formData.organisation,
+                    department: formData.department,
+                    designation: formData.designation,
+                    email: formData.email,
+                    sports_interested: formData.sports,
+                    other_sport: formData.otherSport
+                }]);
 
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Registration failed');
-            }
+            if (error) throw error;
 
             setStatus('success');
             setFormData({
@@ -64,7 +67,7 @@ export default function Registration() {
         } catch (error: any) {
             console.error('Registration Error:', error);
             setStatus('error');
-            setErrorMessage(error.message);
+            setErrorMessage(error.message || 'Registration failed');
         }
     };
 

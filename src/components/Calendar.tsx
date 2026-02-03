@@ -1,16 +1,27 @@
 import { Calendar as CalendarIcon, Search } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import BackButton from './BackButton';
+import { supabase } from '../lib/supabase';
 
 export default function Calendar() {
     const [events, setEvents] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
-        fetch('http://localhost:3000/api/calendar/events')
-            .then(res => res.json())
-            .then(data => setEvents(data))
-            .catch(err => console.error('Failed to load events', err));
+        const fetchEvents = async () => {
+            const { data, error } = await supabase
+                .from('calendar_events')
+                .select('*')
+                .order('event_date', { ascending: true });
+
+            if (error) {
+                console.error('Failed to load events', error);
+            } else {
+                setEvents(data || []);
+            }
+        };
+
+        fetchEvents();
     }, []);
 
     // Helper to format date

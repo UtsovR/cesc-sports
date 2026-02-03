@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { LogOut, Users, MessageSquare, Search } from 'lucide-react';
 import BackButton from './BackButton';
+import { supabase } from '../lib/supabase';
 
 interface AdminDashboardProps {
     onLogout: () => void;
@@ -72,43 +73,35 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     }, []);
 
     const fetchData = async () => {
-        const token = localStorage.getItem('adminToken');
-        if (!token) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
             onLogout();
             return;
         }
 
         try {
-            const response = await fetch('http://localhost:3000/api/admin/data', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+            const [
+                { data: regs },
+                { data: fbs },
+                { data: cal },
+                { data: wn },
+                { data: up },
+                { data: hf }
+            ] = await Promise.all([
+                supabase.from('registrations').select('*').order('created_at', { ascending: false }),
+                supabase.from('feedbacks').select('*').order('submitted_at', { ascending: false }),
+                supabase.from('calendar_events').select('*').order('event_date', { ascending: true }),
+                supabase.from('whats_new').select('*').order('updated_at', { ascending: false }),
+                supabase.from('upcoming_events').select('*').order('created_at', { ascending: false }),
+                supabase.from('hall_of_fame').select('*').order('event_date', { ascending: false })
+            ]);
 
-            if (response.status === 401) {
-                onLogout();
-                return;
-            }
-
-            const data = await response.json();
-            setRegistrations(data.registrations || []);
-            setFeedbacks(data.feedbacks || []);
-
-            const calendarResponse = await fetch('http://localhost:3000/api/calendar/events');
-            const calendarData = await calendarResponse.json();
-            setCalendarEvents(calendarData || []);
-
-            const whatsNewResponse = await fetch('http://localhost:3000/api/whats-new');
-            const whatsNewData = await whatsNewResponse.json();
-            setWhatsNewItems(whatsNewData || []);
-
-            const upcomingResponse = await fetch('http://localhost:3000/api/events/upcoming');
-            const upcomingData = await upcomingResponse.json();
-            setUpcomingEvents(upcomingData || []);
-
-            const hallOfFameResponse = await fetch('http://localhost:3000/api/hall-of-fame');
-            const hallOfFameData = await hallOfFameResponse.json();
-            setHallOfFameEntries(hallOfFameData || []);
+            setRegistrations(regs || []);
+            setFeedbacks(fbs || []);
+            setCalendarEvents(cal || []);
+            setWhatsNewItems(wn || []);
+            setUpcomingEvents(up || []);
+            setHallOfFameEntries(hf || []);
 
         } catch (error) {
             console.error('Error fetching admin data:', error);
@@ -119,9 +112,12 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
     const fetchWhatsNew = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/whats-new');
-            const data = await res.json();
-            setWhatsNewItems(data || []);
+            const { data, error } = await supabase
+                .from('whats_new')
+                .select('*')
+                .order('updated_at', { ascending: false });
+
+            if (!error) setWhatsNewItems(data || []);
         } catch (e) {
             console.error("Failed to refresh whats new", e);
         }
@@ -133,19 +129,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     // Since I'm replacing a large chunk I'll re-include the necessary parts.
 
     const handleLogout = async () => {
-        const token = localStorage.getItem('adminToken');
-        if (token) {
-            try {
-                await fetch('http://localhost:3000/api/admin/logout', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token })
-                });
-            } catch (err) {
-                console.error('Logout error', err);
-            }
-        }
-        localStorage.removeItem('adminToken');
+        await supabase.auth.signOut();
         onLogout();
     };
 
@@ -155,39 +139,42 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             return;
         }
 
-        const token = localStorage.getItem('adminToken');
-        if (!token) return;
+
 
         try {
-            const url = isEditingEvent
-                ? `http://localhost:3000/api/admin/calendar/events/${currentEvent.id}`
-                : `http://localhost:3000/api/admin/calendar/events`;
+            let error;
+            if (isEditingEvent) {
+                const { error: updateError } = await supabase
+                    .from('calendar_events')
+                    .update({
+                        event_name: currentEvent.event_name,
+                        sport: currentEvent.sport,
+                        event_date: currentEvent.event_date,
+                        event_type: currentEvent.event_type,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', currentEvent.id);
+                error = updateError;
+            } else {
+                const { error: insertError } = await supabase
+                    .from('calendar_events')
+                    .insert([{
+                        event_name: currentEvent.event_name,
+                        sport: currentEvent.sport,
+                        event_date: currentEvent.event_date,
+                        event_type: currentEvent.event_type
+                    }]);
+                error = insertError;
+            }
 
-            const method = isEditingEvent ? 'PUT' : 'POST';
-
-            const res = await fetch(url, {
-                method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    event_name: currentEvent.event_name,
-                    sport: currentEvent.sport,
-                    event_date: currentEvent.event_date,
-                    event_type: currentEvent.event_type
-                })
-            });
-
-            if (res.ok) {
+            if (!error) {
                 setEventFormMessage(isEditingEvent ? 'Event updated!' : 'Event added!');
                 setCurrentEvent({ id: 0, event_name: '', sport: '', event_date: '', event_type: 'Internal' });
                 setIsEditingEvent(false);
-                fetchCalendarEvents(); // Assuming this is defined in scope, functionality kept
+                fetchCalendarEvents();
                 setTimeout(() => setEventFormMessage(''), 3000);
             } else {
-                const err = await res.json();
-                setEventFormMessage(`Error: ${err.error}`);
+                setEventFormMessage(`Error: ${error.message}`);
             }
         } catch (e: any) {
             setEventFormMessage(`Error: ${e.message}`);
@@ -196,23 +183,25 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
     const handleDeleteEvent = async (id: number) => {
         if (!confirm('Are you sure you want to delete this event?')) return;
-        const token = localStorage.getItem('adminToken');
-        if (!token) return;
         try {
-            const res = await fetch(`http://localhost:3000/api/admin/calendar/events/${id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) fetchCalendarEvents();
-            else alert('Failed to delete event');
+            const { error } = await supabase
+                .from('calendar_events')
+                .delete()
+                .eq('id', id);
+
+            if (!error) fetchCalendarEvents();
+            else alert('Failed to delete event: ' + error.message);
         } catch (e) { alert('Error deleting event'); }
     };
 
     const fetchCalendarEvents = async () => {
         try {
-            const calendarResponse = await fetch('http://localhost:3000/api/calendar/events');
-            const calendarData = await calendarResponse.json();
-            setCalendarEvents(calendarData || []);
+            const { data, error } = await supabase
+                .from('calendar_events')
+                .select('*')
+                .order('event_date', { ascending: true });
+
+            if (!error) setCalendarEvents(data || []);
         } catch (e) {
             console.error("Failed to refresh calendar", e);
         }
@@ -249,30 +238,24 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     };
 
     const handleSaveWhatsNew = async () => {
-        const token = localStorage.getItem('adminToken');
-        if (!token) return;
-
         try {
-            const res = await fetch(`http://localhost:3000/api/admin/whats-new/${tempWhatsNew.id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
+            const { error } = await supabase
+                .from('whats_new')
+                .update({
                     title: tempWhatsNew.title,
                     description: tempWhatsNew.description,
-                    icon_type: tempWhatsNew.icon_type
+                    icon_type: tempWhatsNew.icon_type,
+                    updated_at: new Date().toISOString()
                 })
-            });
+                .eq('id', tempWhatsNew.id);
 
-            if (res.ok) {
+            if (!error) {
                 setWhatsNewMessage('Updated successfully!');
                 setEditingWhatsNew(null);
                 fetchWhatsNew();
                 setTimeout(() => setWhatsNewMessage(''), 3000);
             } else {
-                setWhatsNewMessage('Update failed.');
+                setWhatsNewMessage('Update failed: ' + error.message);
             }
         } catch (e) {
             setWhatsNewMessage('Error updating.');
@@ -282,9 +265,12 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     // Upcoming Events CRUD
     const fetchUpcomingEvents = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/events/upcoming');
-            const data = await res.json();
-            setUpcomingEvents(data || []);
+            const { data, error } = await supabase
+                .from('upcoming_events')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (!error) setUpcomingEvents(data || []);
         } catch (e) {
             console.error("Failed to refresh upcoming events", e);
         }
@@ -292,9 +278,12 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
     const fetchHallOfFameEntries = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/hall-of-fame');
-            const data = await res.json();
-            setHallOfFameEntries(data || []);
+            const { data, error } = await supabase
+                .from('hall_of_fame')
+                .select('*')
+                .order('event_date', { ascending: false });
+
+            if (!error) setHallOfFameEntries(data || []);
         } catch (e) {
             console.error("Failed to refresh hall of fame entries", e);
         }
@@ -305,7 +294,10 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         if (imagePath.startsWith('http') || imagePath.startsWith('https')) {
             return imagePath;
         }
-        return `http://localhost:3000/uploads/${imagePath}`;
+        // Assuming we check both buckets or have a way to know, 
+        // but for the dashboard preview we just try one or the other based on where we are.
+        const bucket = activeTab === 'hall-of-fame' ? 'hall_of_fame' : 'events';
+        return supabase.storage.from(bucket).getPublicUrl(imagePath).data.publicUrl;
     };
 
     const handleSaveUpcomingEvent = async () => {
@@ -319,40 +311,46 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             return;
         }
 
-        const token = localStorage.getItem('adminToken');
-        if (!token) return;
+
 
         try {
-            const url = isEditingUpcomingEvent
-                ? `http://localhost:3000/api/admin/events/${currentUpcomingEvent.id}`
-                : `http://localhost:3000/api/admin/events`;
-
-            const method = isEditingUpcomingEvent ? 'PUT' : 'POST';
-
-            const formData = new FormData();
-            formData.append('event_name', currentUpcomingEvent.event_name);
-            formData.append('event_date', currentUpcomingEvent.event_date);
-            formData.append('event_time', currentUpcomingEvent.event_time);
-            formData.append('event_venue', currentUpcomingEvent.event_venue);
+            let imagePath = currentUpcomingEvent.event_image;
 
             if (selectedImage) {
-                formData.append('event_image', selectedImage);
-            } else if (isEditingUpcomingEvent) {
-                // Determine if we need to send the old image path or just rely on backend ignoring it?
-                // Backend logic: if file present, update image. Else, don't update image column.
-                // So we don't strictly need to send 'event_image' string.
+                const fileExt = selectedImage.name.split('.').pop();
+                const fileName = `${Math.random()}.${fileExt}`;
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('events')
+                    .upload(fileName, selectedImage);
+
+                if (uploadError) throw uploadError;
+                imagePath = uploadData.path;
             }
 
-            const res = await fetch(url, {
-                method,
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                    // Do NOT set Content-Type header for FormData, browser sets it with boundary
-                },
-                body: formData
-            });
+            const eventData = {
+                event_name: currentUpcomingEvent.event_name,
+                event_date: currentUpcomingEvent.event_date,
+                event_time: currentUpcomingEvent.event_time,
+                event_venue: currentUpcomingEvent.event_venue,
+                event_image: imagePath,
+                updated_at: new Date().toISOString()
+            };
 
-            if (res.ok) {
+            let error;
+            if (isEditingUpcomingEvent) {
+                const { error: updateError } = await supabase
+                    .from('upcoming_events')
+                    .update(eventData)
+                    .eq('id', currentUpcomingEvent.id);
+                error = updateError;
+            } else {
+                const { error: insertError } = await supabase
+                    .from('upcoming_events')
+                    .insert([eventData]);
+                error = insertError;
+            }
+
+            if (!error) {
                 setUpcomingEventMessage(isEditingUpcomingEvent ? 'Event updated!' : 'Event added!');
                 setCurrentUpcomingEvent({ id: 0, event_name: '', event_date: '', event_time: '', event_venue: '', event_image: '' });
                 setSelectedImage(null);
@@ -360,8 +358,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 fetchUpcomingEvents();
                 setTimeout(() => setUpcomingEventMessage(''), 3000);
             } else {
-                const err = await res.json();
-                setUpcomingEventMessage(`Error: ${err.error}`);
+                setUpcomingEventMessage(`Error: ${error.message}`);
             }
         } catch (e: any) {
             setUpcomingEventMessage(`Error: ${e.message}`);
@@ -370,15 +367,14 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
     const handleDeleteUpcomingEvent = async (id: number) => {
         if (!confirm('Are you sure you want to delete this event?')) return;
-        const token = localStorage.getItem('adminToken');
-        if (!token) return;
         try {
-            const res = await fetch(`http://localhost:3000/api/admin/events/${id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) fetchUpcomingEvents();
-            else alert('Failed to delete event');
+            const { error } = await supabase
+                .from('upcoming_events')
+                .delete()
+                .eq('id', id);
+
+            if (!error) fetchUpcomingEvents();
+            else alert('Failed to delete event: ' + error.message);
         } catch (e) { alert('Error deleting event'); }
     };
 
@@ -393,36 +389,47 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             return;
         }
 
-        const token = localStorage.getItem('adminToken');
-        if (!token) return;
+
 
         try {
-            const url = isEditingHallOfFame
-                ? `http://localhost:3000/api/admin/hall-of-fame/${currentHallOfFameEntry.id}`
-                : `http://localhost:3000/api/admin/hall-of-fame`;
-
-            const method = isEditingHallOfFame ? 'PUT' : 'POST';
-
-            const formData = new FormData();
-            formData.append('event_name', currentHallOfFameEntry.event_name);
-            formData.append('event_date', currentHallOfFameEntry.event_date);
-            formData.append('event_venue', currentHallOfFameEntry.event_venue);
-            formData.append('winner_name', currentHallOfFameEntry.winner_name);
-            formData.append('achievement_type', currentHallOfFameEntry.achievement_type);
+            let imagePath = currentHallOfFameEntry.event_image;
 
             if (selectedHallOfFameImage) {
-                formData.append('event_image', selectedHallOfFameImage);
+                const fileExt = selectedHallOfFameImage.name.split('.').pop();
+                const fileName = `${Math.random()}.${fileExt}`;
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('hall_of_fame')
+                    .upload(fileName, selectedHallOfFameImage);
+
+                if (uploadError) throw uploadError;
+                imagePath = uploadData.path;
             }
 
-            const res = await fetch(url, {
-                method,
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
-                body: formData
-            });
+            const entryData = {
+                event_name: currentHallOfFameEntry.event_name,
+                event_date: currentHallOfFameEntry.event_date,
+                event_venue: currentHallOfFameEntry.event_venue,
+                winner_name: currentHallOfFameEntry.winner_name,
+                achievement_type: currentHallOfFameEntry.achievement_type,
+                event_image: imagePath,
+                updated_at: new Date().toISOString()
+            };
 
-            if (res.ok) {
+            let error;
+            if (isEditingHallOfFame) {
+                const { error: updateError } = await supabase
+                    .from('hall_of_fame')
+                    .update(entryData)
+                    .eq('id', currentHallOfFameEntry.id);
+                error = updateError;
+            } else {
+                const { error: insertError } = await supabase
+                    .from('hall_of_fame')
+                    .insert([entryData]);
+                error = insertError;
+            }
+
+            if (!error) {
                 setHallOfFameMessage(isEditingHallOfFame ? 'Entry updated!' : 'Entry added!');
                 setCurrentHallOfFameEntry({
                     id: 0,
@@ -438,14 +445,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 fetchHallOfFameEntries();
                 setTimeout(() => setHallOfFameMessage(''), 3000);
             } else {
-                const text = await res.text();
-                try {
-                    const err = JSON.parse(text);
-                    setHallOfFameMessage(`Error: ${err.error || 'Operation failed'}`);
-                } catch (e) {
-                    console.error("Non-JSON response:", text);
-                    setHallOfFameMessage(`Error: Server returned unexpected status ${res.status}`);
-                }
+                setHallOfFameMessage(`Error: ${error.message}`);
             }
         } catch (e: any) {
             console.error("Network error:", e);
@@ -455,15 +455,14 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
     const handleDeleteHallOfFameEntry = async (id: number) => {
         if (!confirm('Are you sure you want to delete this entry?')) return;
-        const token = localStorage.getItem('adminToken');
-        if (!token) return;
         try {
-            const res = await fetch(`http://localhost:3000/api/admin/hall-of-fame/${id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) fetchHallOfFameEntries();
-            else alert('Failed to delete entry');
+            const { error } = await supabase
+                .from('hall_of_fame')
+                .delete()
+                .eq('id', id);
+
+            if (!error) fetchHallOfFameEntries();
+            else alert('Failed to delete entry: ' + error.message);
         } catch (e) { alert('Error deleting entry'); }
     };
 

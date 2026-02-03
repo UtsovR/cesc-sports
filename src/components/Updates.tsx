@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Bell, TrendingUp, Award, Users } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface UpdateItem {
   id: number;
@@ -28,16 +29,21 @@ export default function Updates() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/whats-new')
-      .then(res => res.json())
-      .then(data => {
-        setUpdates(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error('Error fetching updates:', err);
-        setLoading(false);
-      });
+    const fetchUpdates = async () => {
+      const { data, error } = await supabase
+        .from('whats_new')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching updates:', error);
+      } else {
+        setUpdates(data || []);
+      }
+      setLoading(false);
+    };
+
+    fetchUpdates();
   }, []);
 
   if (loading) {

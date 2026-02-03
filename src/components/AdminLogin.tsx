@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Lock, ShieldCheck, AlertCircle } from 'lucide-react';
 import BackButton from './BackButton';
+import { supabase } from '../lib/supabase';
 
 interface AdminLoginProps {
     onLoginSuccess: () => void;
@@ -18,32 +19,24 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
         setIsLoading(true);
 
         try {
-            const response = await fetch('http://localhost:3000/api/admin/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+            // Using email-based login for Supabase
+            // Note: If the user entered a 'username', we'll treat it as an email if it contains @, 
+            // otherwise we'll append a domain for simple admin ID usage.
+            const email = username.includes('@') ? username : `${username}@cescsportsclub.com`;
+
+            const { data, error: authError } = await supabase.auth.signInWithPassword({
+                email,
+                password,
             });
 
-            if (response.ok) {
-                const data = await response.json();
-                localStorage.setItem('adminToken', data.token);
+            if (authError) throw authError;
+
+            if (data.session) {
                 onLoginSuccess();
-            } else {
-                // Handle non-JSON responses (like 404 from missing endpoint)
-                try {
-                    const data = await response.json();
-                    setError(data.error || 'Login failed');
-                } catch (e) {
-                    if (response.status === 404) {
-                        setError('Connection error: Admin Endpoint not found. Please restart server.');
-                    } else {
-                        setError(`Login failed: Server returned ${response.status} ${response.statusText}`);
-                    }
-                }
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error('Login error:', err);
-            setError('Connection error. Is the server running?');
+            setError(err.message || 'Authentication failed. Please check your credentials.');
         } finally {
             setIsLoading(false);
         }
