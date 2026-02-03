@@ -44,8 +44,9 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     const [eventFormMessage, setEventFormMessage] = useState('');
 
     // What's New State
+    const [isAddingWhatsNew, setIsAddingWhatsNew] = useState(false);
     const [editingWhatsNew, setEditingWhatsNew] = useState<number | null>(null);
-    const [tempWhatsNew, setTempWhatsNew] = useState<any>({});
+    const [tempWhatsNew, setTempWhatsNew] = useState<any>({ title: '', description: '', icon_type: 'Bell' });
     const [whatsNewMessage, setWhatsNewMessage] = useState('');
 
     // Upcoming Events Form State
@@ -238,28 +239,61 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     };
 
     const handleSaveWhatsNew = async () => {
+        if (!tempWhatsNew.title || !tempWhatsNew.description) {
+            setWhatsNewMessage('Title and Description are required.');
+            return;
+        }
+
         try {
-            const { error } = await supabase
-                .from('whats_new')
-                .update({
-                    title: tempWhatsNew.title,
-                    description: tempWhatsNew.description,
-                    icon_type: tempWhatsNew.icon_type,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', tempWhatsNew.id);
+            let error;
+            if (editingWhatsNew) {
+                const { error: updateError } = await supabase
+                    .from('whats_new')
+                    .update({
+                        title: tempWhatsNew.title,
+                        description: tempWhatsNew.description,
+                        icon_type: tempWhatsNew.icon_type,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', tempWhatsNew.id);
+                error = updateError;
+            } else {
+                const { error: insertError } = await supabase
+                    .from('whats_new')
+                    .insert([{
+                        title: tempWhatsNew.title,
+                        description: tempWhatsNew.description,
+                        icon_type: tempWhatsNew.icon_type
+                    }]);
+                error = insertError;
+            }
 
             if (!error) {
-                setWhatsNewMessage('Updated successfully!');
+                setWhatsNewMessage(editingWhatsNew ? 'Updated successfully!' : 'Added successfully!');
                 setEditingWhatsNew(null);
+                setIsAddingWhatsNew(false);
+                setTempWhatsNew({ title: '', description: '', icon_type: 'Bell' });
                 fetchWhatsNew();
                 setTimeout(() => setWhatsNewMessage(''), 3000);
             } else {
-                setWhatsNewMessage('Update failed: ' + error.message);
+                setWhatsNewMessage('Operation failed: ' + error.message);
             }
         } catch (e) {
-            setWhatsNewMessage('Error updating.');
+            setWhatsNewMessage('Error saving.');
         }
+    };
+
+    const handleDeleteWhatsNew = async (id: number) => {
+        if (!confirm('Are you sure you want to delete this card?')) return;
+        try {
+            const { error } = await supabase
+                .from('whats_new')
+                .delete()
+                .eq('id', id);
+
+            if (!error) fetchWhatsNew();
+            else alert('Failed to delete: ' + error.message);
+        } catch (e) { alert('Error deleting card'); }
     };
 
     // Upcoming Events CRUD
@@ -776,17 +810,90 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
                             {activeTab === 'whats-new' && (
                                 <div className="p-6">
-                                    <h3 className="text-xl font-bold text-gray-800 mb-6">Manage What's New Cards</h3>
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h3 className="text-xl font-bold text-gray-800">Manage What's New Cards</h3>
+                                        {!isAddingWhatsNew && (
+                                            <button
+                                                onClick={() => {
+                                                    setIsAddingWhatsNew(true);
+                                                    setEditingWhatsNew(null);
+                                                    setTempWhatsNew({ title: '', description: '', icon_type: 'Bell' });
+                                                }}
+                                                className="bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors font-medium flex items-center gap-2 shadow-sm"
+                                            >
+                                                <span>+</span> Add New Card
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {isAddingWhatsNew && (
+                                        <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mb-8 max-w-2xl">
+                                            <h4 className="font-bold text-blue-800 mb-4">Add New Announcement</h4>
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                                                    <input
+                                                        type="text"
+                                                        className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                        value={tempWhatsNew.title}
+                                                        onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, title: e.target.value })}
+                                                        placeholder="e.g. New Registration Open"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                                                    <textarea
+                                                        className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                        rows={3}
+                                                        value={tempWhatsNew.description}
+                                                        onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, description: e.target.value })}
+                                                        placeholder="Write details here..."
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Icon Type</label>
+                                                    <select
+                                                        className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                                                        value={tempWhatsNew.icon_type}
+                                                        onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, icon_type: e.target.value })}
+                                                    >
+                                                        <option value="Bell">Bell</option>
+                                                        <option value="Award">Award</option>
+                                                        <option value="TrendingUp">TrendingUp</option>
+                                                        <option value="Users">Users</option>
+                                                    </select>
+                                                </div>
+                                                <div className="flex gap-2 justify-end pt-2">
+                                                    <button
+                                                        onClick={() => setIsAddingWhatsNew(false)}
+                                                        className="px-6 py-2 text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        onClick={handleSaveWhatsNew}
+                                                        className="px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold shadow-md transition-all"
+                                                    >
+                                                        Post Update
+                                                    </button>
+                                                </div>
+                                                {whatsNewMessage && (
+                                                    <p className="text-sm text-center text-blue-600 mt-2 font-medium">{whatsNewMessage}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="grid md:grid-cols-2 lg:grid-cols-2 gap-6">
                                         {whatsNewItems.map((item) => (
-                                            <div key={item.id} className="border border-gray-200 rounded-xl p-6 bg-white shadow-sm flex flex-col h-full">
+                                            <div key={item.id} className="border border-gray-100 rounded-2xl p-6 bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col h-full relative group">
                                                 {editingWhatsNew === item.id ? (
                                                     <div className="space-y-4">
                                                         <div>
                                                             <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
                                                             <input
                                                                 type="text"
-                                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                                                className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-blue-50/10"
                                                                 value={tempWhatsNew.title}
                                                                 onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, title: e.target.value })}
                                                             />
@@ -794,7 +901,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                         <div>
                                                             <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                                                             <textarea
-                                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                                                className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-blue-50/10"
                                                                 rows={3}
                                                                 value={tempWhatsNew.description}
                                                                 onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, description: e.target.value })}
@@ -803,7 +910,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                         <div>
                                                             <label className="block text-sm font-medium text-gray-700 mb-1">Icon Type</label>
                                                             <select
-                                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                                                className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-blue-50/10"
                                                                 value={tempWhatsNew.icon_type}
                                                                 onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, icon_type: e.target.value })}
                                                             >
@@ -824,7 +931,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                                 onClick={handleSaveWhatsNew}
                                                                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                                                             >
-                                                                Save Changes
+                                                                Save
                                                             </button>
                                                         </div>
                                                         {whatsNewMessage && (
@@ -833,27 +940,39 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                     </div>
                                                 ) : (
                                                     <>
-                                                        <div className="flex items-start justify-between mb-4">
+                                                        <button
+                                                            onClick={() => handleDeleteWhatsNew(item.id)}
+                                                            className="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition-colors p-1"
+                                                            title="Delete card"
+                                                        >
+                                                            <LogOut size={16} /> {/* Using LogOut icon as a placeholder for trash since Lucide's Trash is not imported */}
+                                                        </button>
+                                                        <div className="flex items-start justify-between mb-4 pr-6">
                                                             <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold uppercase tracking-wider">
                                                                 {item.icon_type} Icon
                                                             </span>
                                                             <span className="text-xs text-gray-400">
-                                                                Updated: {new Date(item.updated_at).toLocaleDateString()}
+                                                                {new Date(item.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                                                             </span>
                                                         </div>
                                                         <h4 className="font-bold text-gray-800 text-lg mb-2">{item.title}</h4>
-                                                        <p className="text-gray-600 text-sm flex-grow mb-4">{item.description}</p>
-                                                        <button
-                                                            onClick={() => handleEditWhatsNew(item)}
-                                                            className="w-full py-2 border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50 font-medium transition-colors"
-                                                        >
-                                                            Edit Content
-                                                        </button>
+                                                        <p className="text-gray-600 text-sm flex-grow mb-4 leading-relaxed">{item.description}</p>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => handleEditWhatsNew(item)}
+                                                                className="flex-grow py-2 border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50 font-medium transition-colors text-sm"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                        </div>
                                                     </>
                                                 )}
                                             </div>
                                         ))}
                                     </div>
+                                    {whatsNewItems.length === 0 && (
+                                        <div className="text-center py-12 text-gray-400">No updates found. Click 'Add New Card' to create one.</div>
+                                    )}
                                 </div>
                             )}
 
@@ -863,7 +982,6 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
                                     {/* Add/Edit Form */}
                                     <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mb-8">
-                                        <h4 className="text-lg font-bold text-gray-800 mb-4">{isEditingUpcomingEvent ? 'Edit Event' : 'Add New Event'}</h4>
                                         <h4 className="text-lg font-bold text-gray-800 mb-4">{isEditingUpcomingEvent ? 'Edit Event' : 'Add New Event'}</h4>
                                         <div className="grid md:grid-cols-2 gap-4">
                                             <div className="md:col-span-2">
