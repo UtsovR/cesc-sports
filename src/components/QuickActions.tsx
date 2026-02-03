@@ -104,13 +104,13 @@ export default function QuickActions({ onNavigate }: QuickActionsProps) {
               <button
                 key={index}
                 onClick={action.onClick}
-                className={`group backdrop-blur-xl bg-white/40 rounded-2xl p-6 border border-white/50 hover:bg-white/60 transition-all duration-300 hover:scale-105 hover:shadow-2xl ${action.glow}`}
+                className={`group backdrop-blur-xl bg-white/40 rounded-2xl p-8 border border-white/50 hover:bg-white/60 transition-all duration-300 hover:scale-105 hover:shadow-2xl w-full md:w-72 flex flex-col items-center text-center ${action.glow}`}
               >
-                <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${action.gradient} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300`}>
-                  <Icon className="text-white" size={28} />
+                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${action.gradient} flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 shadow-lg`}>
+                  <Icon className="text-white" size={32} />
                 </div>
-                <h3 className="font-semibold text-gray-800 mb-1">{action.title}</h3>
-                <p className="text-sm text-gray-600">{action.description}</p>
+                <h3 className="font-bold text-gray-800 mb-2 text-xl">{action.title}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed">{action.description}</p>
               </button>
             );
           })}
