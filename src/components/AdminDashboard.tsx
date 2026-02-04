@@ -3,6 +3,22 @@ import { LogOut, Users, MessageSquare, Search } from 'lucide-react';
 import BackButton from './BackButton';
 import { supabase } from '../lib/supabase';
 
+const INITIAL_EVENTS = [
+    { id: -1, sport: 'Tennis', event_name: "CHAIRMAN'S CUP", event_date: '2025-12-01', displayDate: "DEC-JAN'26", event_type: 'Internal' },
+    { id: -2, sport: 'Tennis', event_name: "MONSOON CARNIVAL", event_date: '2025-09-01', displayDate: "SEP'25", event_type: 'Internal' },
+    { id: -3, sport: 'Cricket', event_name: "9A SIDE INTER DEPT.", event_date: '2026-02-01', displayDate: "FEB'26", event_type: 'Internal' },
+    { id: -4, sport: 'Cricket', event_name: "MERCHANTS CUP CCFC", event_date: '2025-04-01', displayDate: "APL'25", event_type: 'External Corporate Tournament' },
+    { id: -5, sport: 'Football', event_name: "5A SIDE INTER DEPT.", event_date: '2025-04-01', displayDate: "APL'25", event_type: 'Internal' },
+    { id: -6, sport: 'Football', event_name: "MERCHANTS CUP CCFC", event_date: '2025-05-01', displayDate: "MAY'25", event_type: 'External Corporate Tournament' },
+    { id: -7, sport: 'Table Tennis', event_name: "INTER DEPARTMENTAL", event_date: '2025-08-01', displayDate: "AUG'25", event_type: 'Internal' },
+    { id: -8, sport: 'Table Tennis', event_name: "CORP. TOURN. SATURDAY CLUB", event_date: '2026-01-01', displayDate: "JAN'26", event_type: 'External Corporate Tournament' },
+    { id: -9, sport: 'Badminton', event_name: "INTER DEPTARTMENTAL", event_date: '2025-06-01', displayDate: "JUN'25", event_type: 'Internal' },
+    { id: -10, sport: 'Badminton', event_name: "LAKE CLUB TOURNAMENT", event_date: '2026-02-01', displayDate: "FEB'26", event_type: 'External Corporate Tournament' },
+    { id: -11, sport: 'Athletics', event_name: "FITNESS WORKSHOP", event_date: '2025-10-01', displayDate: "OCT'25", event_type: 'Internal' },
+    { id: -12, sport: 'Athletics', event_name: "NATUROPATHY WORKSHOP", event_date: '2026-03-01', displayDate: "MAR'26", event_type: 'Internal' },
+    { id: -13, sport: 'Others', event_name: "CULTURAL/QUIZ", event_date: '2025-10-01', displayDate: "OCT'25", event_type: 'Internal' }
+];
+
 interface AdminDashboardProps {
     onLogout: () => void;
 }
@@ -28,13 +44,15 @@ interface Feedback {
 }
 
 export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
-    const [activeTab, setActiveTab] = useState<'registrations' | 'feedback' | 'calendar' | 'whats-new' | 'upcoming-events' | 'hall-of-fame'>('registrations');
+    const [activeTab, setActiveTab] = useState<'registrations' | 'feedback' | 'calendar' | 'whats-new' | 'upcoming-events' | 'hall-of-fame' | 'about-cms' | 'vision-cms'>('registrations');
     const [registrations, setRegistrations] = useState<Registration[]>([]);
     const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
     const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
     const [whatsNewItems, setWhatsNewItems] = useState<any[]>([]);
     const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
     const [hallOfFameEntries, setHallOfFameEntries] = useState<any[]>([]);
+    const [aboutImages, setAboutImages] = useState<any[]>([]);
+    const [visionImages, setVisionImages] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -69,6 +87,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     const [selectedHallOfFameImage, setSelectedHallOfFameImage] = useState<File | null>(null);
     const [hallOfFameMessage, setHallOfFameMessage] = useState('');
 
+    // CMS States
+    const [aboutMessage, setAboutMessage] = useState('');
+    const [visionMessage, setVisionMessage] = useState('');
+    const [selectedAboutFile, setSelectedAboutFile] = useState<File | null>(null);
+    const [selectedVisionFile, setSelectedVisionFile] = useState<File | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
+
     useEffect(() => {
         fetchData();
     }, []);
@@ -81,28 +106,27 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         }
 
         try {
-            const [
-                { data: regs },
-                { data: fbs },
-                { data: cal },
-                { data: wn },
-                { data: up },
-                { data: hf }
-            ] = await Promise.all([
+            const results = await Promise.all([
                 supabase.from('registrations').select('*').order('created_at', { ascending: false }),
                 supabase.from('feedbacks').select('*').order('submitted_at', { ascending: false }),
                 supabase.from('calendar_events').select('*').order('event_date', { ascending: true }),
                 supabase.from('whats_new').select('*').order('updated_at', { ascending: false }),
                 supabase.from('upcoming_events').select('*').order('created_at', { ascending: false }),
-                supabase.from('hall_of_fame').select('*').order('event_date', { ascending: false })
+                supabase.from('hall_of_fame').select('*').order('event_date', { ascending: false }),
+                supabase.from('about_images').select('*').order('created_at', { ascending: false }),
+                supabase.from('vision_images').select('*').order('created_at', { ascending: false })
             ]);
 
-            setRegistrations(regs || []);
-            setFeedbacks(fbs || []);
-            setCalendarEvents(cal || []);
-            setWhatsNewItems(wn || []);
-            setUpcomingEvents(up || []);
-            setHallOfFameEntries(hf || []);
+            const [regs, fbs, cal, wn, up, hf, ai, vi] = results;
+
+            setRegistrations(regs.data || []);
+            setFeedbacks(fbs.data || []);
+            setCalendarEvents([...INITIAL_EVENTS, ...(cal.data || [])]);
+            setWhatsNewItems(wn.data || []);
+            setUpcomingEvents(up.data || []);
+            setHallOfFameEntries(hf.data || []);
+            setAboutImages(ai.data || []);
+            setVisionImages(vi.data || []);
 
         } catch (error) {
             console.error('Error fetching admin data:', error);
@@ -185,6 +209,11 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     const handleDeleteEvent = async (id: number) => {
         if (!confirm('Are you sure you want to delete this event?')) return;
         try {
+            if (id < 0) {
+                // For hardcoded events, we just filter them out of the current state
+                setCalendarEvents(prev => prev.filter(e => e.id !== id));
+                return;
+            }
             const { error } = await supabase
                 .from('calendar_events')
                 .delete()
@@ -202,7 +231,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .select('*')
                 .order('event_date', { ascending: true });
 
-            if (!error) setCalendarEvents(data || []);
+            if (!error) setCalendarEvents([...INITIAL_EVENTS, ...(data || [])]);
         } catch (e) {
             console.error("Failed to refresh calendar", e);
         }
@@ -500,6 +529,98 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         } catch (e) { alert('Error deleting entry'); }
     };
 
+    const fetchAboutImages = async () => {
+        const { data } = await supabase.from('about_images').select('*').order('created_at', { ascending: false });
+        setAboutImages(data || []);
+    };
+
+    const fetchVisionImages = async () => {
+        const { data } = await supabase.from('vision_images').select('*').order('created_at', { ascending: false });
+        setVisionImages(data || []);
+    };
+
+    const handleUploadCMSImage = async (type: 'about' | 'vision') => {
+        const file = type === 'about' ? selectedAboutFile : selectedVisionFile;
+        const bucket = type === 'about' ? 'about-images' : 'vision-images';
+        const table = type === 'about' ? 'about_images' : 'vision_images';
+        const setMessage = type === 'about' ? setAboutMessage : setVisionMessage;
+        const setFile = type === 'about' ? setSelectedAboutFile : setSelectedVisionFile;
+        const fetchFn = type === 'about' ? fetchAboutImages : fetchVisionImages;
+
+        if (!file) {
+            setMessage('Please select a file first.');
+            return;
+        }
+
+        setIsUploading(true);
+        setMessage('Uploading...');
+
+        try {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${Math.random()}.${fileExt}`;
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from(bucket)
+                .upload(fileName, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(uploadData.path);
+            const publicUrl = publicUrlData.publicUrl;
+
+            const { error: dbError } = await supabase
+                .from(table)
+                .insert([{ image_url: publicUrl }]);
+
+            if (dbError) throw dbError;
+
+            setMessage('Uploaded successfully!');
+            setFile(null);
+            fetchFn();
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error: any) {
+            console.error('Upload error:', error);
+            setMessage(`Upload failed: ${error.message}`);
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleDeleteCMSImage = async (type: 'about' | 'vision', id: string, imageUrl: string) => {
+        if (!confirm('Are you sure you want to delete this image?')) return;
+
+        const bucket = type === 'about' ? 'about-images' : 'vision-images';
+        const table = type === 'about' ? 'about_images' : 'vision_images';
+        const setMessage = type === 'about' ? setAboutMessage : setVisionMessage;
+        const fetchFn = type === 'about' ? fetchAboutImages : fetchVisionImages;
+
+        try {
+            // Extract file path from public URL
+            const urlObj = new URL(imageUrl);
+            const pathParts = urlObj.pathname.split('/');
+            const fileName = pathParts[pathParts.length - 1];
+
+            // 1. Delete from Storage
+            const { error: storageError } = await supabase.storage
+                .from(bucket)
+                .remove([fileName]);
+
+            // 2. Delete from Database (regardless of storage deletion success to keep sync)
+            const { error: dbError } = await supabase
+                .from(table)
+                .delete()
+                .eq('id', id);
+
+            if (dbError) throw dbError;
+
+            setMessage('Deleted successfully!');
+            fetchFn();
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error: any) {
+            console.error('Delete error:', error);
+            setMessage(`Delete failed: ${error.message}`);
+        }
+    };
+
 
     const filteredRegistrations = registrations.filter(r =>
         r.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -583,6 +704,20 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                         >
                             <span className="font-bold">🏆</span> Hall of Fame
                             <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{hallOfFameEntries.length}</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('about-cms')}
+                            className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'about-cms' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            <span className="font-bold">ℹ️</span> About CMS
+                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{aboutImages.length}</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('vision-cms')}
+                            className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'vision-cms' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            <span className="font-bold">🎯</span> Vision CMS
+                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{visionImages.length}</span>
                         </button>
                     </div>
 
@@ -1285,6 +1420,106 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                 )}
                                             </tbody>
                                         </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'about-cms' && (
+                                <div className="p-6">
+                                    <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mb-8">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h3 className="text-lg font-bold text-gray-800">Upload About Image</h3>
+                                            {aboutMessage && (
+                                                <span className={`text-sm px-3 py-1 rounded-full ${aboutMessage.includes('failed') ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+                                                    {aboutMessage}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-col md:flex-row gap-4 items-center">
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={(e) => setSelectedAboutFile(e.target.files?.[0] || null)}
+                                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                            />
+                                            <button
+                                                onClick={() => handleUploadCMSImage('about')}
+                                                disabled={isUploading || !selectedAboutFile}
+                                                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 whitespace-nowrap"
+                                            >
+                                                {isUploading ? 'Uploading...' : 'Upload Image'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                        {aboutImages.map((img) => (
+                                            <div key={img.id} className="relative group rounded-xl overflow-hidden aspect-square border border-gray-200 bg-white shadow-sm">
+                                                <img src={img.image_url} alt="About" className="w-full h-full object-cover" />
+                                                <button
+                                                    onClick={() => handleDeleteCMSImage('about', img.id, img.image_url)}
+                                                    className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-700"
+                                                    title="Delete Image"
+                                                >
+                                                    <LogOut size={16} className="rotate-90" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {aboutImages.length === 0 && (
+                                            <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-200 rounded-2xl text-gray-400">
+                                                No About images managed via CMS yet.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'vision-cms' && (
+                                <div className="p-6">
+                                    <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mb-8">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h3 className="text-lg font-bold text-gray-800">Upload Vision Image</h3>
+                                            {visionMessage && (
+                                                <span className={`text-sm px-3 py-1 rounded-full ${visionMessage.includes('failed') ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+                                                    {visionMessage}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-col md:flex-row gap-4 items-center">
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={(e) => setSelectedVisionFile(e.target.files?.[0] || null)}
+                                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                            />
+                                            <button
+                                                onClick={() => handleUploadCMSImage('vision')}
+                                                disabled={isUploading || !selectedVisionFile}
+                                                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 whitespace-nowrap"
+                                            >
+                                                {isUploading ? 'Uploading...' : 'Upload Image'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                        {visionImages.map((img) => (
+                                            <div key={img.id} className="relative group rounded-xl overflow-hidden aspect-square border border-gray-200 bg-white shadow-sm">
+                                                <img src={img.image_url} alt="Vision" className="w-full h-full object-cover" />
+                                                <button
+                                                    onClick={() => handleDeleteCMSImage('vision', img.id, img.image_url)}
+                                                    className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-700"
+                                                    title="Delete Image"
+                                                >
+                                                    <LogOut size={16} className="rotate-90" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        {visionImages.length === 0 && (
+                                            <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-200 rounded-2xl text-gray-400">
+                                                No Vision images managed via CMS yet.
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}

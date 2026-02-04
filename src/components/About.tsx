@@ -1,28 +1,45 @@
 import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import BackButton from './BackButton';
-
-// Import images from local assets
-import img1 from '../assets/about/33.JPG';
-import img2 from '../assets/about/44.JPG';
-import img3 from '../assets/about/3.jpg';
-import img4 from '../assets/about/11.JPG';
-import img5 from '../assets/about/15.JPG';
-
-const images = [img1, img2, img3, img4, img5];
+import { supabase } from '../lib/supabase';
 
 export default function About() {
+    const [images, setImages] = useState<string[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const timer = setInterval(() => {
-            setCurrentIndex((prev) => (prev + 1) % images.length);
-        }, 5000);
-        return () => clearInterval(timer);
+        const fetchImages = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('about_images')
+                    .select('image_url')
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+                if (data && data.length > 0) {
+                    setImages(data.map((img: { image_url: string }) => img.image_url));
+                }
+            } catch (err) {
+                console.error('Error fetching about images:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchImages();
     }, []);
 
-    const nextSlide = () => setCurrentIndex((prev) => (prev + 1) % images.length);
-    const prevSlide = () => setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+    useEffect(() => {
+        if (images.length === 0) return;
+        const timer = setInterval(() => {
+            setCurrentIndex((prev: number) => (prev + 1) % images.length);
+        }, 5000);
+        return () => clearInterval(timer);
+    }, [images]);
+
+    const nextSlide = () => images.length > 0 && setCurrentIndex((prev: number) => (prev + 1) % images.length);
+    const prevSlide = () => images.length > 0 && setCurrentIndex((prev: number) => (prev - 1 + images.length) % images.length);
 
     return (
         <div className="pt-24 px-4 max-w-7xl mx-auto mb-20">
@@ -46,48 +63,61 @@ export default function About() {
 
                     {/* Carousel Section */}
                     <div className="lg:w-1/2 w-full">
-                        <div className="relative group aspect-[4/3] rounded-2xl overflow-hidden shadow-2xl border-4 border-white/80 transition-shadow hover:shadow-blue-500/20">
-                            {images.map((img, index) => (
-                                <div
-                                    key={index}
-                                    className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${index === currentIndex ? 'opacity-100' : 'opacity-0'
-                                        }`}
-                                >
-                                    <div className="relative w-full h-full overflow-hidden">
-                                        <img
-                                            src={img}
-                                            alt={`Club Activity ${index + 1}`}
-                                            className="w-full h-full object-cover transition-transform duration-700 hover:scale-110 cursor-pointer"
-                                        />
-                                    </div>
+                        <div className="relative group aspect-[4/3] rounded-2xl overflow-hidden shadow-2xl border-4 border-white/80 transition-shadow hover:shadow-blue-500/20 bg-gray-100">
+                            {loading ? (
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
                                 </div>
-                            ))}
+                            ) : images.length > 0 ? (
+                                <>
+                                    {images.map((img: string, index: number) => (
+                                        <div
+                                            key={index}
+                                            className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${index === currentIndex ? 'opacity-100' : 'opacity-0'
+                                                }`}
+                                        >
+                                            <div className="relative w-full h-full overflow-hidden">
+                                                <img
+                                                    src={img}
+                                                    alt={`Club Activity ${index + 1}`}
+                                                    className="w-full h-full object-cover transition-transform duration-700 hover:scale-110"
+                                                    loading="lazy"
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
 
-                            {/* Navigation Arrows */}
-                            <button
-                                onClick={prevSlide}
-                                className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full backdrop-blur-md bg-white/20 border border-white/40 text-gray-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/40"
-                            >
-                                <ChevronLeft size={24} />
-                            </button>
-                            <button
-                                onClick={nextSlide}
-                                className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full backdrop-blur-md bg-white/20 border border-white/40 text-gray-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/40"
-                            >
-                                <ChevronRight size={24} />
-                            </button>
-
-                            {/* Dots */}
-                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-                                {images.map((_, index) => (
+                                    {/* Navigation Arrows */}
                                     <button
-                                        key={index}
-                                        onClick={() => setCurrentIndex(index)}
-                                        className={`w-2.5 h-2.5 rounded-full transition-all ${index === currentIndex ? 'bg-blue-600 w-6' : 'bg-gray-400/50'
-                                            }`}
-                                    />
-                                ))}
-                            </div>
+                                        onClick={prevSlide}
+                                        className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full backdrop-blur-md bg-white/20 border border-white/40 text-gray-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/40"
+                                    >
+                                        <ChevronLeft size={24} />
+                                    </button>
+                                    <button
+                                        onClick={nextSlide}
+                                        className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full backdrop-blur-md bg-white/20 border border-white/40 text-gray-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/40"
+                                    >
+                                        <ChevronRight size={24} />
+                                    </button>
+
+                                    {/* Dots */}
+                                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+                                        {images.map((_: any, index: number) => (
+                                            <button
+                                                key={index}
+                                                onClick={() => setCurrentIndex(index)}
+                                                className={`w-2.5 h-2.5 rounded-full transition-all ${index === currentIndex ? 'bg-blue-600 w-6' : 'bg-gray-400/50'
+                                                    }`}
+                                            />
+                                        ))}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+                                    No images found. Please upload via Admin Dashboard.
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

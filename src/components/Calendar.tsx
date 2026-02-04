@@ -3,6 +3,22 @@ import { useState, useEffect } from 'react';
 import BackButton from './BackButton';
 import { supabase } from '../lib/supabase';
 
+const INITIAL_EVENTS = [
+    { id: -1, sport: 'Tennis', event_name: "CHAIRMAN'S CUP", event_date: '2025-12-01', displayDate: "DEC-JAN'26", event_type: 'Internal' },
+    { id: -2, sport: 'Tennis', event_name: "MONSOON CARNIVAL", event_date: '2025-09-01', displayDate: "SEP'25", event_type: 'Internal' },
+    { id: -3, sport: 'Cricket', event_name: "9A SIDE INTER DEPT.", event_date: '2026-02-01', displayDate: "FEB'26", event_type: 'Internal' },
+    { id: -4, sport: 'Cricket', event_name: "MERCHANTS CUP CCFC", event_date: '2025-04-01', displayDate: "APL'25", event_type: 'External Corporate Tournament' },
+    { id: -5, sport: 'Football', event_name: "5A SIDE INTER DEPT.", event_date: '2025-04-01', displayDate: "APL'25", event_type: 'Internal' },
+    { id: -6, sport: 'Football', event_name: "MERCHANTS CUP CCFC", event_date: '2025-05-01', displayDate: "MAY'25", event_type: 'External Corporate Tournament' },
+    { id: -7, sport: 'Table Tennis', event_name: "INTER DEPARTMENTAL", event_date: '2025-08-01', displayDate: "AUG'25", event_type: 'Internal' },
+    { id: -8, sport: 'Table Tennis', event_name: "CORP. TOURN. SATURDAY CLUB", event_date: '2026-01-01', displayDate: "JAN'26", event_type: 'External Corporate Tournament' },
+    { id: -9, sport: 'Badminton', event_name: "INTER DEPTARTMENTAL", event_date: '2025-06-01', displayDate: "JUN'25", event_type: 'Internal' },
+    { id: -10, sport: 'Badminton', event_name: "LAKE CLUB TOURNAMENT", event_date: '2026-02-01', displayDate: "FEB'26", event_type: 'External Corporate Tournament' },
+    { id: -11, sport: 'Athletics', event_name: "FITNESS WORKSHOP", event_date: '2025-10-01', displayDate: "OCT'25", event_type: 'Internal' },
+    { id: -12, sport: 'Athletics', event_name: "NATUROPATHY WORKSHOP", event_date: '2026-03-01', displayDate: "MAR'26", event_type: 'Internal' },
+    { id: -13, sport: 'Others', event_name: "CULTURAL/QUIZ", event_date: '2025-10-01', displayDate: "OCT'25", event_type: 'Internal' }
+];
+
 export default function Calendar() {
     const [events, setEvents] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -16,8 +32,11 @@ export default function Calendar() {
 
             if (error) {
                 console.error('Failed to load events', error);
+                setEvents(INITIAL_EVENTS);
             } else {
-                setEvents(data || []);
+                // Merge static events with database events
+                const dbEvents = data || [];
+                setEvents([...INITIAL_EVENTS, ...dbEvents]);
             }
         };
 
@@ -26,6 +45,14 @@ export default function Calendar() {
 
     // Helper to format date
     const parseEvent = (evt: any) => {
+        if (evt.displayDate) {
+            return {
+                ...evt,
+                sport: evt.sport || 'Others',
+                name: evt.event_name,
+                dateDisplay: evt.displayDate
+            };
+        }
         // Month formatting from actual date
         const dateObj = new Date(evt.event_date);
         const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) + "'"; // e.g. Dec'25
