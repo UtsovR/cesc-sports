@@ -12,6 +12,7 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Authentication failed. Please check your credentials.';
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -34,9 +35,9 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
             if (data.session) {
                 onLoginSuccess();
             }
-        } catch (err: any) {
+        } catch (err) {
             console.error('Login error:', err);
-            setError(err.message || 'Authentication failed. Please check your credentials.');
+            setError(getErrorMessage(err));
         } finally {
             setIsLoading(false);
         }

@@ -2,8 +2,17 @@ import { Calendar, MapPin, Clock } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
+interface UpcomingEvent {
+  id: number;
+  event_name: string;
+  event_date: string;
+  event_time: string;
+  event_venue: string;
+  event_image: string;
+}
+
 export default function Events() {
-  const [events, setEvents] = useState<any[]>([]);
+  const [events, setEvents] = useState<UpcomingEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

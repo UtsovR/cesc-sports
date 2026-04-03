@@ -3,6 +3,10 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import BackButton from './BackButton';
 import { supabase } from '../lib/supabase';
 
+interface SupabaseImage {
+    image_url: string;
+}
+
 export default function About() {
     const [images, setImages] = useState<string[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -18,7 +22,7 @@ export default function About() {
 
                 if (error) throw error;
                 if (data && data.length > 0) {
-                    setImages(data.map((img: { image_url: string }) => img.image_url));
+                    setImages(data.map((img: SupabaseImage) => img.image_url));
                 }
             } catch (err) {
                 console.error('Error fetching about images:', err);
@@ -103,7 +107,7 @@ export default function About() {
 
                                     {/* Dots */}
                                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-                                        {images.map((_: any, index: number) => (
+                                        {images.map((_, index: number) => (
                                             <button
                                                 key={index}
                                                 onClick={() => setCurrentIndex(index)}

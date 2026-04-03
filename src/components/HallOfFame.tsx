@@ -45,14 +45,6 @@ export default function HallOfFame() {
         return <Award className="text-blue-500" size={24} />;
     };
 
-    const getAchievementColor = (type: string) => {
-        const lowerType = type.toLowerCase();
-        if (lowerType.includes('winner') || lowerType.includes('gold') || lowerType.includes('1st')) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-        if (lowerType.includes('runner') || lowerType.includes('silver') || lowerType.includes('2nd')) return 'bg-gray-100 text-gray-800 border-gray-200';
-        if (lowerType.includes('bronze') || lowerType.includes('3rd')) return 'bg-orange-50 text-orange-800 border-orange-200';
-        return 'bg-blue-50 text-blue-800 border-blue-200';
-    }
-
     return (
         <div className="pt-24 pb-16 px-4 min-h-screen">
             <div className="max-w-7xl mx-auto">

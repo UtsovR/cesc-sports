@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, TrendingUp, Award, Users } from 'lucide-react';
+import { Bell, TrendingUp, Award, Users, type LucideIcon } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface UpdateItem {
@@ -10,7 +10,7 @@ interface UpdateItem {
   updated_at: string;
 }
 
-const iconMap: Record<string, any> = {
+const iconMap: Record<string, LucideIcon> = {
   'Bell': Bell,
   'Award': Award,
   'TrendingUp': TrendingUp,

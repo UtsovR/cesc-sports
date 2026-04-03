@@ -3,6 +3,9 @@ import { MessageSquare, Star, Send, User, Mail, Sparkles, Phone, Briefcase, MapP
 import BackButton from './BackButton';
 import { supabase } from '../lib/supabase';
 
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Feedback submission failed';
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function Feedback() {
     const [formData, setFormData] = useState({
         name: '',
@@ -25,20 +28,47 @@ export default function Feedback() {
         setStatus('submitting');
         setErrorMessage('');
 
+        const name = formData.name.trim();
+        const employeeCode = formData.employeeCode.trim();
+        const contactNumber = formData.contactNumber.trim();
+        const email = formData.email.trim();
+        const location = formData.location.trim();
+        const organisation = formData.organisation.trim();
+        const department = formData.department.trim();
+        const message = formData.message.trim();
+
+        if (email && !emailPattern.test(email)) {
+            setStatus('error');
+            setErrorMessage('Please enter a valid email address.');
+            return;
+        }
+
+        if (employeeCode && !/^\d{6}$/.test(employeeCode)) {
+            setStatus('error');
+            setErrorMessage('Employee Code must be exactly 6 digits if provided.');
+            return;
+        }
+
+        if (!message) {
+            setStatus('error');
+            setErrorMessage('Message is required.');
+            return;
+        }
+
         try {
             const { error } = await supabase
                 .from('feedbacks')
                 .insert([{
-                    name: formData.name || null,
-                    email: formData.email || null,
-                    employee_code: formData.employeeCode || null,
-                    contact_number: formData.contactNumber || null,
-                    location: formData.location || null,
-                    organization: formData.organisation || null,
-                    department: formData.department || null,
+                    name: name || null,
+                    email: email || null,
+                    employee_code: employeeCode || null,
+                    contact_number: contactNumber || null,
+                    location: location || null,
+                    organization: organisation || null,
+                    department: department || null,
                     experience_rating: formData.rating,
                     feedback_type: formData.type,
-                    message: formData.message
+                    message
                 }]);
 
             if (error) throw error;
@@ -56,10 +86,10 @@ export default function Feedback() {
                 message: '',
                 type: 'suggestion'
             });
-        } catch (error: any) {
+        } catch (error) {
             console.error('Feedback Error:', error);
             setStatus('error');
-            setErrorMessage(error.message || 'Feedback submission failed');
+            setErrorMessage(getErrorMessage(error));
         }
     };
 

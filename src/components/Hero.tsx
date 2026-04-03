@@ -79,7 +79,6 @@ export default function Hero() {
 
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className={`text-center bg-white/1 rounded-3xl flex flex-col justify-center items-center border border-white/30 shadow-2xl transform transition-all duration-700 ${slide.logo ? 'w-[700px] h-[450px] backdrop-blur-[8px]' : 'w-[500px] h-[300px] backdrop-blur-[2px]'}`}>
-                  {/* @ts-ignore */}
                   {slide.logo ? (
                     <>
                       <img

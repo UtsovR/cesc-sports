@@ -1,7 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LogOut, Users, MessageSquare, Search } from 'lucide-react';
 import BackButton from './BackButton';
 import { supabase } from '../lib/supabase';
+import {
+    buildCalendarFallbackUpdatedAt,
+    isCalendarEventTimeColumnMissingError,
+    normalizeCalendarEvent
+} from '../lib/calendarEventTime';
 
 const INITIAL_EVENTS = [
     { id: -1, sport: 'Tennis', event_name: "CHAIRMAN'S CUP", event_date: '2025-12-01', displayDate: "DEC-JAN'26", event_type: 'Internal' },
@@ -24,81 +29,301 @@ interface AdminDashboardProps {
 }
 
 interface Registration {
+    id?: number;
     employee_code: string;
     full_name: string;
-    email: string;
-    department: string;
-    designation: string;
-    sports_interested: string;
+    location?: string | null;
+    organization?: string | null;
+    organisation?: string | null;
+    email?: string | null;
+    department?: string | null;
+    designation?: string | null;
+    sports_interested: string | string[];
+    other_sport?: string | null;
     created_at: string;
 }
 
 interface Feedback {
     id: number;
+    name?: string | null;
+    email?: string | null;
+    employee_code?: string | null;
+    contact_number?: string | null;
+    location?: string | null;
+    organization?: string | null;
+    organisation?: string | null;
+    department?: string | null;
     experience_rating: number;
     feedback_type: string;
     message: string;
     submitted_at: string;
-    name?: string;
-    email?: string;
 }
 
+type ActiveTab =
+    | 'registrations'
+    | 'feedback'
+    | 'calendar'
+    | 'whats-new'
+    | 'upcoming-events'
+    | 'hall-of-fame'
+    | 'gallery-manager'
+    | 'pre-gallery'
+    | 'about-cms'
+    | 'vision-cms';
+
+type IconType = 'Bell' | 'Award' | 'TrendingUp' | 'Users';
+type CmsType = 'about' | 'vision';
+
+interface CalendarEvent {
+    id: number;
+    sport: string;
+    event_name: string;
+    event_date: string;
+    event_type: string;
+    event_time?: string | null;
+    displayDate?: string;
+    updated_at?: string;
+}
+
+interface WhatsNewItem {
+    id: number;
+    title: string;
+    description: string;
+    icon_type: IconType;
+    updated_at: string;
+}
+
+interface UpcomingEvent {
+    id: number;
+    event_name: string;
+    event_date: string;
+    event_time: string;
+    event_venue: string;
+    event_image: string;
+    updated_at?: string;
+}
+
+interface HallOfFameEntry {
+    id: number;
+    event_name: string;
+    event_date: string;
+    event_venue: string;
+    winner_name: string;
+    achievement_type: string;
+    event_image: string;
+    updated_at?: string;
+}
+
+interface CmsImage {
+    id: number;
+    image_url: string;
+    created_at?: string;
+}
+
+interface PreGalleryImage {
+    id: number;
+    image_url: string;
+    display_order: number;
+    uploaded_at?: string;
+}
+
+interface GalleryCategory {
+    id: number;
+    name: string;
+    created_at?: string;
+}
+
+interface GalleryImage {
+    id: number;
+    image_url: string;
+    category_id: number;
+    uploaded_at?: string;
+}
+
+const PRE_GALLERY_SLOTS = [1, 2, 3] as const;
+type PreGallerySlot = typeof PRE_GALLERY_SLOTS[number];
+const GALLERY_CATEGORY_ORDER = ['cricket', 'football', 'badminton', 'lawn_tennis', 'table_tennis', 'workshops'] as const;
+
+const formatGalleryCategoryLabel = (name: string) => name
+    .split('_')
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+
+const sortGalleryCategories = <T extends { name: string }>(categories: T[]) => [...categories].sort((first, second) => {
+    const firstIndex = GALLERY_CATEGORY_ORDER.indexOf(first.name as typeof GALLERY_CATEGORY_ORDER[number]);
+    const secondIndex = GALLERY_CATEGORY_ORDER.indexOf(second.name as typeof GALLERY_CATEGORY_ORDER[number]);
+    const normalizedFirstIndex = firstIndex === -1 ? Number.MAX_SAFE_INTEGER : firstIndex;
+    const normalizedSecondIndex = secondIndex === -1 ? Number.MAX_SAFE_INTEGER : secondIndex;
+
+    if (normalizedFirstIndex !== normalizedSecondIndex) {
+        return normalizedFirstIndex - normalizedSecondIndex;
+    }
+
+    return first.name.localeCompare(second.name);
+});
+
+const DEFAULT_EVENT: CalendarEvent = { id: 0, event_name: '', sport: '', event_date: '', event_time: '', event_type: 'Internal' };
+const DEFAULT_WHATS_NEW: Omit<WhatsNewItem, 'id' | 'updated_at'> = { title: '', description: '', icon_type: 'Bell' };
+const DEFAULT_UPCOMING_EVENT: UpcomingEvent = { id: 0, event_name: '', event_date: '', event_time: '', event_venue: '', event_image: '' };
+const DEFAULT_HALL_OF_FAME_ENTRY: HallOfFameEntry = {
+    id: 0,
+    event_name: '',
+    event_date: '',
+    event_venue: '',
+    winner_name: '',
+    achievement_type: 'Winner',
+    event_image: ''
+};
+
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unknown error';
+
+const formatSportsInterested = (sports: string | string[]) => {
+    if (Array.isArray(sports)) {
+        return sports.join(', ');
+    }
+
+    try {
+        const parsedSports = JSON.parse(sports);
+        return Array.isArray(parsedSports) ? parsedSports.join(', ') : sports;
+    } catch {
+        return sports;
+    }
+};
+
+const getRegistrationOrganisation = (registration: Registration) =>
+    registration.organization || registration.organisation || '';
+
+const getFeedbackOrganisation = (feedback: Feedback) =>
+    feedback.organization || feedback.organisation || '';
+
+const formatRegistrationSports = (sports: string | string[], otherSport?: string | null) => {
+    const formattedSports = formatSportsInterested(sports)
+        .split(',')
+        .map(item => item.trim())
+        .filter(Boolean);
+
+    if (otherSport?.trim()) {
+        const otherIndex = formattedSports.findIndex(item => item.toLowerCase() === 'others');
+        if (otherIndex >= 0) {
+            formattedSports[otherIndex] = `Others (${otherSport.trim()})`;
+        } else {
+            formattedSports.push(otherSport.trim());
+        }
+    }
+
+    return formattedSports.join(', ');
+};
+
+const escapeCsvValue = (value: string | number | null | undefined) => {
+    const normalized = value == null ? '' : String(value);
+    return `"${normalized.replace(/"/g, '""')}"`;
+};
+
+const createCsvContent = (
+    headers: string[],
+    rows: Array<Array<string | number | null | undefined>>
+) => [headers, ...rows]
+    .map((row) => row.map(escapeCsvValue).join(','))
+    .join('\r\n');
+
+const downloadCsvFile = ({
+    headers,
+    rows,
+    fileBaseName
+}: {
+    headers: string[];
+    rows: Array<Array<string | number | null | undefined>>;
+    fileBaseName: string;
+}) => {
+    const csvContent = createCsvContent(headers, rows);
+    const blob = new Blob(['\uFEFF', csvContent], { type: 'text/csv;charset=utf-8;' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateSuffix = new Date().toISOString().slice(0, 10);
+
+    link.href = downloadUrl;
+    link.download = `${fileBaseName}_${dateSuffix}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+};
+
+const isAnonymousFeedback = (feedback: Feedback) => ![
+    feedback.name,
+    feedback.email,
+    feedback.employee_code,
+    feedback.contact_number,
+    feedback.location,
+    getFeedbackOrganisation(feedback),
+    feedback.department
+].some(value => value && String(value).trim());
+
 export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
-    const [activeTab, setActiveTab] = useState<'registrations' | 'feedback' | 'calendar' | 'whats-new' | 'upcoming-events' | 'hall-of-fame' | 'about-cms' | 'vision-cms'>('registrations');
+    const [activeTab, setActiveTab] = useState<ActiveTab>('registrations');
     const [registrations, setRegistrations] = useState<Registration[]>([]);
     const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
-    const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
-    const [whatsNewItems, setWhatsNewItems] = useState<any[]>([]);
-    const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
-    const [hallOfFameEntries, setHallOfFameEntries] = useState<any[]>([]);
-    const [aboutImages, setAboutImages] = useState<any[]>([]);
-    const [visionImages, setVisionImages] = useState<any[]>([]);
+    const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+    const [whatsNewItems, setWhatsNewItems] = useState<WhatsNewItem[]>([]);
+    const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+    const [hallOfFameEntries, setHallOfFameEntries] = useState<HallOfFameEntry[]>([]);
+    const [aboutImages, setAboutImages] = useState<CmsImage[]>([]);
+    const [visionImages, setVisionImages] = useState<CmsImage[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [registrationsError, setRegistrationsError] = useState('');
+    const [feedbackError, setFeedbackError] = useState('');
+    const [calendarError, setCalendarError] = useState('');
+    const [feedbackTypeFilter, setFeedbackTypeFilter] = useState('all');
 
     // Calendar Form State
     const [isEditingEvent, setIsEditingEvent] = useState(false);
-    const [currentEvent, setCurrentEvent] = useState({ id: 0, event_name: '', sport: '', event_date: '', event_type: 'Internal' });
+    const [currentEvent, setCurrentEvent] = useState<CalendarEvent>(DEFAULT_EVENT);
     const [eventFormMessage, setEventFormMessage] = useState('');
 
     // What's New State
     const [isAddingWhatsNew, setIsAddingWhatsNew] = useState(false);
     const [editingWhatsNew, setEditingWhatsNew] = useState<number | null>(null);
-    const [tempWhatsNew, setTempWhatsNew] = useState<any>({ title: '', description: '', icon_type: 'Bell' });
+    const [tempWhatsNew, setTempWhatsNew] = useState<Omit<WhatsNewItem, 'id' | 'updated_at'>>(DEFAULT_WHATS_NEW);
     const [whatsNewMessage, setWhatsNewMessage] = useState('');
 
     // Upcoming Events Form State
     const [isEditingUpcomingEvent, setIsEditingUpcomingEvent] = useState(false);
-    const [currentUpcomingEvent, setCurrentUpcomingEvent] = useState({ id: 0, event_name: '', event_date: '', event_time: '', event_venue: '', event_image: '' });
+    const [currentUpcomingEvent, setCurrentUpcomingEvent] = useState<UpcomingEvent>(DEFAULT_UPCOMING_EVENT);
     const [selectedImage, setSelectedImage] = useState<File | null>(null);
     const [upcomingEventMessage, setUpcomingEventMessage] = useState('');
 
     // Hall of Fame Form State
     const [isEditingHallOfFame, setIsEditingHallOfFame] = useState(false);
-    const [currentHallOfFameEntry, setCurrentHallOfFameEntry] = useState({
-        id: 0,
-        event_name: '',
-        event_date: '',
-        event_venue: '',
-        winner_name: '',
-        achievement_type: 'Winner',
-        event_image: ''
-    });
+    const [currentHallOfFameEntry, setCurrentHallOfFameEntry] = useState<HallOfFameEntry>(DEFAULT_HALL_OF_FAME_ENTRY);
     const [selectedHallOfFameImage, setSelectedHallOfFameImage] = useState<File | null>(null);
     const [hallOfFameMessage, setHallOfFameMessage] = useState('');
 
     // CMS States
+    const [galleryCategories, setGalleryCategories] = useState<GalleryCategory[]>([]);
+    const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+    const [galleryMessage, setGalleryMessage] = useState('');
+    const [galleryError, setGalleryError] = useState('');
+    const [galleryManagerLoading, setGalleryManagerLoading] = useState(false);
+    const [selectedGalleryFile, setSelectedGalleryFile] = useState<File | null>(null);
+    const [selectedGalleryCategoryId, setSelectedGalleryCategoryId] = useState('');
+    const [isGalleryUploading, setIsGalleryUploading] = useState(false);
+    const [preGalleryImages, setPreGalleryImages] = useState<PreGalleryImage[]>([]);
+    const [preGalleryMessage, setPreGalleryMessage] = useState('');
+    const [preGalleryError, setPreGalleryError] = useState('');
+    const [preGalleryUploadingOrder, setPreGalleryUploadingOrder] = useState<PreGallerySlot | null>(null);
+    const [selectedPreGalleryFiles, setSelectedPreGalleryFiles] = useState<Record<PreGallerySlot, File | null>>({
+        1: null,
+        2: null,
+        3: null
+    });
     const [aboutMessage, setAboutMessage] = useState('');
     const [visionMessage, setVisionMessage] = useState('');
     const [selectedAboutFile, setSelectedAboutFile] = useState<File | null>(null);
     const [selectedVisionFile, setSelectedVisionFile] = useState<File | null>(null);
     const [isUploading, setIsUploading] = useState(false);
 
-    useEffect(() => {
-        fetchData();
-    }, []);
-
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
             onLogout();
@@ -113,27 +338,75 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 supabase.from('whats_new').select('*').order('updated_at', { ascending: false }),
                 supabase.from('upcoming_events').select('*').order('created_at', { ascending: false }),
                 supabase.from('hall_of_fame').select('*').order('event_date', { ascending: false }),
+                supabase.from('gallery_categories').select('*'),
+                supabase.from('gallery_images').select('*').order('uploaded_at', { ascending: false }),
+                supabase.from('pregallery_images').select('*').order('display_order', { ascending: true }),
                 supabase.from('about_images').select('*').order('created_at', { ascending: false }),
                 supabase.from('vision_images').select('*').order('created_at', { ascending: false })
             ]);
 
-            const [regs, fbs, cal, wn, up, hf, ai, vi] = results;
+            const [regs, fbs, cal, wn, up, hf, gc, gi, pgi, ai, vi] = results;
+
+            if (regs.error) {
+                setRegistrationsError(`Failed to load registrations: ${regs.error.message}`);
+            } else {
+                setRegistrationsError('');
+            }
+
+            if (fbs.error) {
+                setFeedbackError(`Failed to load feedback: ${fbs.error.message}`);
+            } else {
+                setFeedbackError('');
+            }
+
+            if (cal.error) {
+                setCalendarError(`Failed to load calendar events: ${cal.error.message}`);
+            } else {
+                setCalendarError('');
+            }
+
+            if (pgi.error) {
+                setPreGalleryError(`Failed to load pre-gallery images: ${pgi.error.message}`);
+            } else {
+                setPreGalleryError('');
+            }
+
+            if (gc.error || gi.error) {
+                setGalleryError(`Failed to load gallery manager data: ${gc.error?.message || gi.error?.message}`);
+            } else {
+                setGalleryError('');
+            }
 
             setRegistrations(regs.data || []);
             setFeedbacks(fbs.data || []);
-            setCalendarEvents([...INITIAL_EVENTS, ...(cal.data || [])]);
+            setCalendarEvents([
+                ...INITIAL_EVENTS,
+                ...((cal.data || []).map((event) => normalizeCalendarEvent(event as CalendarEvent)))
+            ]);
             setWhatsNewItems(wn.data || []);
             setUpcomingEvents(up.data || []);
             setHallOfFameEntries(hf.data || []);
+            setGalleryCategories(sortGalleryCategories((gc.data || []) as GalleryCategory[]));
+            setGalleryImages((gi.data || []) as GalleryImage[]);
+            setPreGalleryImages((pgi.data || []) as PreGalleryImage[]);
             setAboutImages(ai.data || []);
             setVisionImages(vi.data || []);
 
         } catch (error) {
+            setRegistrationsError('Failed to load registrations.');
+            setFeedbackError('Failed to load feedback.');
+            setCalendarError('Failed to load calendar events.');
+            setGalleryError('Failed to load gallery manager data.');
+            setPreGalleryError('Failed to load pre-gallery images.');
             console.error('Error fetching admin data:', error);
         } finally {
             setLoading(false);
         }
-    };
+    }, [onLogout]);
+
+    useEffect(() => {
+        void fetchData();
+    }, [fetchData]);
 
     const fetchWhatsNew = async () => {
         try {
@@ -143,15 +416,10 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .order('updated_at', { ascending: false });
 
             if (!error) setWhatsNewItems(data || []);
-        } catch (e) {
-            console.error("Failed to refresh whats new", e);
+        } catch (error) {
+            console.error('Failed to refresh whats new', error);
         }
     };
-
-    // ... (existing functions: handleLogout, handleSaveEvent, handleDeleteEvent, startEdit, cancelEdit, formatDate) ...
-    // Note: I'm keeping existing functions but cutting down replacement for brevity where possible
-    // Wait, replace_file_content requires exact target match. I need to be careful.
-    // Since I'm replacing a large chunk I'll re-include the necessary parts.
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
@@ -159,50 +427,69 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     };
 
     const handleSaveEvent = async () => {
-        if (!currentEvent.event_name || !currentEvent.sport || !currentEvent.event_date) {
-            setEventFormMessage('Name, Sport and Date are required.');
+        if (!currentEvent.event_name || !currentEvent.sport || !currentEvent.event_date || !currentEvent.event_time) {
+            setEventFormMessage('Name, Sport, Date and Time are required.');
             return;
         }
 
-
-
         try {
+            const calendarPayload = {
+                event_name: currentEvent.event_name,
+                sport: currentEvent.sport,
+                event_date: currentEvent.event_date,
+                event_time: currentEvent.event_time,
+                event_type: currentEvent.event_type,
+                updated_at: new Date().toISOString()
+            };
+
+            const fallbackCalendarPayload = {
+                event_name: currentEvent.event_name,
+                sport: currentEvent.sport,
+                event_date: currentEvent.event_date,
+                event_type: currentEvent.event_type,
+                updated_at: buildCalendarFallbackUpdatedAt(currentEvent.event_date, currentEvent.event_time)
+            };
+
             let error;
             if (isEditingEvent) {
-                const { error: updateError } = await supabase
+                const updateResponse = await supabase
                     .from('calendar_events')
-                    .update({
-                        event_name: currentEvent.event_name,
-                        sport: currentEvent.sport,
-                        event_date: currentEvent.event_date,
-                        event_type: currentEvent.event_type,
-                        updated_at: new Date().toISOString()
-                    })
+                    .update(calendarPayload)
                     .eq('id', currentEvent.id);
-                error = updateError;
+                error = updateResponse.error;
+
+                if (error && isCalendarEventTimeColumnMissingError(error)) {
+                    const fallbackResponse = await supabase
+                        .from('calendar_events')
+                        .update(fallbackCalendarPayload)
+                        .eq('id', currentEvent.id);
+                    error = fallbackResponse.error;
+                }
             } else {
-                const { error: insertError } = await supabase
+                const insertResponse = await supabase
                     .from('calendar_events')
-                    .insert([{
-                        event_name: currentEvent.event_name,
-                        sport: currentEvent.sport,
-                        event_date: currentEvent.event_date,
-                        event_type: currentEvent.event_type
-                    }]);
-                error = insertError;
+                    .insert([calendarPayload]);
+                error = insertResponse.error;
+
+                if (error && isCalendarEventTimeColumnMissingError(error)) {
+                    const fallbackResponse = await supabase
+                        .from('calendar_events')
+                        .insert([fallbackCalendarPayload]);
+                    error = fallbackResponse.error;
+                }
             }
 
             if (!error) {
                 setEventFormMessage(isEditingEvent ? 'Event updated!' : 'Event added!');
-                setCurrentEvent({ id: 0, event_name: '', sport: '', event_date: '', event_type: 'Internal' });
+                setCurrentEvent(DEFAULT_EVENT);
                 setIsEditingEvent(false);
-                fetchCalendarEvents();
+                void fetchCalendarEvents();
                 setTimeout(() => setEventFormMessage(''), 3000);
             } else {
                 setEventFormMessage(`Error: ${error.message}`);
             }
-        } catch (e: any) {
-            setEventFormMessage(`Error: ${e.message}`);
+        } catch (error) {
+            setEventFormMessage(`Error: ${getErrorMessage(error)}`);
         }
     };
 
@@ -211,7 +498,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         try {
             if (id < 0) {
                 // For hardcoded events, we just filter them out of the current state
-                setCalendarEvents(prev => prev.filter(e => e.id !== id));
+                setCalendarEvents(prev => prev.filter(event => event.id !== id));
                 return;
             }
             const { error } = await supabase
@@ -219,9 +506,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .delete()
                 .eq('id', id);
 
-            if (!error) fetchCalendarEvents();
+            if (!error) {
+                void fetchCalendarEvents();
+            }
             else alert('Failed to delete event: ' + error.message);
-        } catch (e) { alert('Error deleting event'); }
+        } catch {
+            alert('Error deleting event');
+        }
     };
 
     const fetchCalendarEvents = async () => {
@@ -231,21 +522,31 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .select('*')
                 .order('event_date', { ascending: true });
 
-            if (!error) setCalendarEvents([...INITIAL_EVENTS, ...(data || [])]);
-        } catch (e) {
-            console.error("Failed to refresh calendar", e);
+            if (error) {
+                setCalendarError(`Failed to load calendar events: ${error.message}`);
+                return;
+            }
+
+            setCalendarEvents([
+                ...INITIAL_EVENTS,
+                ...((data || []).map((event) => normalizeCalendarEvent(event as CalendarEvent)))
+            ]);
+            setCalendarError('');
+        } catch (error) {
+            console.error('Failed to refresh calendar', error);
+            setCalendarError('Failed to load calendar events.');
         }
     };
 
-    const startEdit = (event: any) => {
+    const startEdit = (event: CalendarEvent) => {
         setIsEditingEvent(true);
-        setCurrentEvent({ ...event });
+        setCurrentEvent({ ...normalizeCalendarEvent(event) });
         window.scrollTo(0, 0);
     };
 
     const cancelEdit = () => {
         setIsEditingEvent(false);
-        setCurrentEvent({ id: 0, event_name: '', sport: '', event_date: '', event_type: 'Internal' });
+        setCurrentEvent(DEFAULT_EVENT);
         setEventFormMessage('');
     };
 
@@ -255,15 +556,121 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         });
     };
 
+    const formatRegistrationSubmittedAt = (dateString: string) => {
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) {
+            return dateString;
+        }
+
+        return date.toLocaleString('en-IN', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+        });
+    };
+
+    const handleDownloadRegistrationsCsv = () => {
+        const headers = [
+            'Employee Code',
+            'Full Name',
+            'Location',
+            'Organisation',
+            'Department',
+            'Designation',
+            'Email Address',
+            'Interested Sports',
+            'Submitted At'
+        ];
+
+        const rows = registrations.map((registration) => [
+            registration.employee_code,
+            registration.full_name,
+            registration.location,
+            getRegistrationOrganisation(registration),
+            registration.department,
+            registration.designation,
+            registration.email,
+            formatRegistrationSports(registration.sports_interested, registration.other_sport),
+            formatRegistrationSubmittedAt(registration.created_at)
+        ]);
+
+        downloadCsvFile({
+            headers,
+            rows,
+            fileBaseName: 'event_registrations'
+        });
+    };
+
+    const handleDownloadFeedbackCsv = () => {
+        const headers = [
+            'Name',
+            'Email',
+            'Employee Code',
+            'Contact Number',
+            'Location',
+            'Organisation',
+            'Department',
+            'Experience Rating',
+            'Feedback Type',
+            'Message',
+            'Submitted At'
+        ];
+
+        const rows = feedbacks.map((feedback) => [
+            feedback.name,
+            feedback.email,
+            feedback.employee_code,
+            feedback.contact_number,
+            feedback.location,
+            getFeedbackOrganisation(feedback),
+            feedback.department,
+            feedback.experience_rating,
+            feedback.feedback_type,
+            feedback.message,
+            formatRegistrationSubmittedAt(feedback.submitted_at)
+        ]);
+
+        downloadCsvFile({
+            headers,
+            rows,
+            fileBaseName: 'feedback_responses'
+        });
+    };
+
+    const formatEventTime = (time?: string | null) => {
+        if (!time) {
+            return 'TBD';
+        }
+
+        const [hoursString = '0', minutesString = '0'] = time.split(':');
+        const hours = Number(hoursString);
+        const minutes = Number(minutesString);
+
+        if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+            return time;
+        }
+
+        return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString('en-IN', {
+            hour: 'numeric',
+            minute: '2-digit'
+        });
+    };
+
     // What's New Upgrade
-    const handleEditWhatsNew = (item: any) => {
+    const handleEditWhatsNew = (item: WhatsNewItem) => {
         setEditingWhatsNew(item.id);
-        setTempWhatsNew({ ...item });
+        setTempWhatsNew({
+            title: item.title,
+            description: item.description,
+            icon_type: item.icon_type
+        });
     };
 
     const handleCancelWhatsNew = () => {
         setEditingWhatsNew(null);
-        setTempWhatsNew({});
+        setTempWhatsNew(DEFAULT_WHATS_NEW);
         setWhatsNewMessage('');
     };
 
@@ -284,7 +691,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                         icon_type: tempWhatsNew.icon_type,
                         updated_at: new Date().toISOString()
                     })
-                    .eq('id', tempWhatsNew.id);
+                    .eq('id', editingWhatsNew);
                 error = updateError;
             } else {
                 const { error: insertError } = await supabase
@@ -301,13 +708,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 setWhatsNewMessage(editingWhatsNew ? 'Updated successfully!' : 'Added successfully!');
                 setEditingWhatsNew(null);
                 setIsAddingWhatsNew(false);
-                setTempWhatsNew({ title: '', description: '', icon_type: 'Bell' });
-                fetchWhatsNew();
+                setTempWhatsNew(DEFAULT_WHATS_NEW);
+                void fetchWhatsNew();
                 setTimeout(() => setWhatsNewMessage(''), 3000);
             } else {
                 setWhatsNewMessage('Operation failed: ' + error.message);
             }
-        } catch (e) {
+        } catch {
             setWhatsNewMessage('Error saving.');
         }
     };
@@ -320,9 +727,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .delete()
                 .eq('id', id);
 
-            if (!error) fetchWhatsNew();
+            if (!error) {
+                void fetchWhatsNew();
+            }
             else alert('Failed to delete: ' + error.message);
-        } catch (e) { alert('Error deleting card'); }
+        } catch {
+            alert('Error deleting card');
+        }
     };
 
     // Upcoming Events CRUD
@@ -334,8 +745,8 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .order('created_at', { ascending: false });
 
             if (!error) setUpcomingEvents(data || []);
-        } catch (e) {
-            console.error("Failed to refresh upcoming events", e);
+        } catch (error) {
+            console.error('Failed to refresh upcoming events', error);
         }
     };
 
@@ -347,8 +758,8 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .order('event_date', { ascending: false });
 
             if (!error) setHallOfFameEntries(data || []);
-        } catch (e) {
-            console.error("Failed to refresh hall of fame entries", e);
+        } catch (error) {
+            console.error('Failed to refresh hall of fame entries', error);
         }
     };
 
@@ -415,16 +826,16 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
             if (!error) {
                 setUpcomingEventMessage(isEditingUpcomingEvent ? 'Event updated!' : 'Event added!');
-                setCurrentUpcomingEvent({ id: 0, event_name: '', event_date: '', event_time: '', event_venue: '', event_image: '' });
+                setCurrentUpcomingEvent(DEFAULT_UPCOMING_EVENT);
                 setSelectedImage(null);
                 setIsEditingUpcomingEvent(false);
-                fetchUpcomingEvents();
+                void fetchUpcomingEvents();
                 setTimeout(() => setUpcomingEventMessage(''), 3000);
             } else {
                 setUpcomingEventMessage(`Error: ${error.message}`);
             }
-        } catch (e: any) {
-            setUpcomingEventMessage(`Error: ${e.message}`);
+        } catch (error) {
+            setUpcomingEventMessage(`Error: ${getErrorMessage(error)}`);
         }
     };
 
@@ -436,9 +847,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .delete()
                 .eq('id', id);
 
-            if (!error) fetchUpcomingEvents();
+            if (!error) {
+                void fetchUpcomingEvents();
+            }
             else alert('Failed to delete event: ' + error.message);
-        } catch (e) { alert('Error deleting event'); }
+        } catch {
+            alert('Error deleting event');
+        }
     };
 
     const handleSaveHallOfFameEntry = async () => {
@@ -494,25 +909,17 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
             if (!error) {
                 setHallOfFameMessage(isEditingHallOfFame ? 'Entry updated!' : 'Entry added!');
-                setCurrentHallOfFameEntry({
-                    id: 0,
-                    event_name: '',
-                    event_date: '',
-                    event_venue: '',
-                    winner_name: '',
-                    achievement_type: 'Winner',
-                    event_image: ''
-                });
+                setCurrentHallOfFameEntry(DEFAULT_HALL_OF_FAME_ENTRY);
                 setSelectedHallOfFameImage(null);
                 setIsEditingHallOfFame(false);
-                fetchHallOfFameEntries();
+                void fetchHallOfFameEntries();
                 setTimeout(() => setHallOfFameMessage(''), 3000);
             } else {
                 setHallOfFameMessage(`Error: ${error.message}`);
             }
-        } catch (e: any) {
-            console.error("Network error:", e);
-            setHallOfFameMessage(`Error: Connection failed - ${e.message}`);
+        } catch (error) {
+            console.error('Network error:', error);
+            setHallOfFameMessage(`Error: Connection failed - ${getErrorMessage(error)}`);
         }
     };
 
@@ -524,9 +931,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .delete()
                 .eq('id', id);
 
-            if (!error) fetchHallOfFameEntries();
+            if (!error) {
+                void fetchHallOfFameEntries();
+            }
             else alert('Failed to delete entry: ' + error.message);
-        } catch (e) { alert('Error deleting entry'); }
+        } catch {
+            alert('Error deleting entry');
+        }
     };
 
     const fetchAboutImages = async () => {
@@ -534,12 +945,231 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         setAboutImages(data || []);
     };
 
+    const fetchPreGalleryImages = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('pregallery_images')
+                .select('*')
+                .order('display_order', { ascending: true });
+
+            if (error) {
+                setPreGalleryError(`Failed to load pre-gallery images: ${error.message}`);
+                return;
+            }
+
+            setPreGalleryImages((data || []) as PreGalleryImage[]);
+            setPreGalleryError('');
+        } catch (error) {
+            console.error('Failed to refresh pre-gallery images', error);
+            setPreGalleryError('Failed to load pre-gallery images.');
+        }
+    };
+
+    const fetchGalleryManagerData = async () => {
+        setGalleryManagerLoading(true);
+
+        try {
+            const [categoriesResponse, imagesResponse] = await Promise.all([
+                supabase.from('gallery_categories').select('*'),
+                supabase.from('gallery_images').select('*').order('uploaded_at', { ascending: false })
+            ]);
+
+            if (categoriesResponse.error || imagesResponse.error) {
+                setGalleryError(`Failed to load gallery manager data: ${categoriesResponse.error?.message || imagesResponse.error?.message}`);
+                return;
+            }
+
+            setGalleryCategories(sortGalleryCategories((categoriesResponse.data || []) as GalleryCategory[]));
+            setGalleryImages((imagesResponse.data || []) as GalleryImage[]);
+            setGalleryError('');
+        } catch (error) {
+            console.error('Failed to refresh gallery manager data', error);
+            setGalleryError('Failed to load gallery manager data.');
+        } finally {
+            setGalleryManagerLoading(false);
+        }
+    };
+
     const fetchVisionImages = async () => {
         const { data } = await supabase.from('vision_images').select('*').order('created_at', { ascending: false });
         setVisionImages(data || []);
     };
 
-    const handleUploadCMSImage = async (type: 'about' | 'vision') => {
+    const handleUploadGalleryImage = async () => {
+        if (!selectedGalleryFile) {
+            setGalleryMessage('Please select a gallery image first.');
+            return;
+        }
+
+        if (!selectedGalleryCategoryId) {
+            setGalleryMessage('Please select a category first.');
+            return;
+        }
+
+        setIsGalleryUploading(true);
+        setGalleryMessage('Uploading image...');
+
+        try {
+            const fileExt = selectedGalleryFile.name.split('.').pop();
+            const fileName = `gallery-${selectedGalleryCategoryId}-${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('gallery-images')
+                .upload(fileName, selectedGalleryFile);
+
+            if (uploadError) throw uploadError;
+
+            const { data: publicUrlData } = supabase.storage.from('gallery-images').getPublicUrl(uploadData.path);
+            const publicUrl = publicUrlData.publicUrl;
+
+            const { error: dbError } = await supabase
+                .from('gallery_images')
+                .insert([{
+                    image_url: publicUrl,
+                    category_id: Number(selectedGalleryCategoryId),
+                    uploaded_at: new Date().toISOString()
+                }]);
+
+            if (dbError) throw dbError;
+
+            setSelectedGalleryFile(null);
+            setSelectedGalleryCategoryId('');
+            setGalleryError('');
+            setGalleryMessage('Gallery image uploaded successfully!');
+            void fetchGalleryManagerData();
+            setTimeout(() => setGalleryMessage(''), 3000);
+        } catch (error) {
+            console.error('Gallery upload error:', error);
+            setGalleryMessage(`Upload failed: ${getErrorMessage(error)}`);
+        } finally {
+            setIsGalleryUploading(false);
+        }
+    };
+
+    const handleMoveGalleryImage = async (imageId: number, categoryId: number) => {
+        try {
+            const { error } = await supabase
+                .from('gallery_images')
+                .update({ category_id: categoryId })
+                .eq('id', imageId);
+
+            if (error) throw error;
+
+            setGalleryImages((currentImages) => currentImages.map((image) => (
+                image.id === imageId
+                    ? { ...image, category_id: categoryId }
+                    : image
+            )));
+            setGalleryMessage('Gallery image moved successfully!');
+            setTimeout(() => setGalleryMessage(''), 3000);
+        } catch (error) {
+            console.error('Gallery move error:', error);
+            setGalleryMessage(`Move failed: ${getErrorMessage(error)}`);
+        }
+    };
+
+    const handleDeleteGalleryImage = async (imageId: number, imageUrl: string) => {
+        if (!confirm('Are you sure you want to delete this gallery image?')) return;
+
+        try {
+            const imageUrlObject = new URL(imageUrl);
+            const fileName = imageUrlObject.pathname.split('/').pop();
+
+            const { error: storageError } = fileName
+                ? await supabase.storage.from('gallery-images').remove([fileName])
+                : { error: null };
+
+            const { error: dbError } = await supabase
+                .from('gallery_images')
+                .delete()
+                .eq('id', imageId);
+
+            if (dbError) throw dbError;
+            if (storageError) {
+                console.warn('Gallery storage deletion warning:', storageError);
+            }
+
+            setGalleryImages((currentImages) => currentImages.filter((image) => image.id !== imageId));
+            setGalleryMessage('Gallery image deleted successfully!');
+            setTimeout(() => setGalleryMessage(''), 3000);
+        } catch (error) {
+            console.error('Gallery delete error:', error);
+            setGalleryMessage(`Delete failed: ${getErrorMessage(error)}`);
+        }
+    };
+
+    const handleUploadPreGalleryImage = async (displayOrder: PreGallerySlot) => {
+        const file = selectedPreGalleryFiles[displayOrder];
+
+        if (!file) {
+            setPreGalleryMessage(`Please select an image for slot ${displayOrder} first.`);
+            return;
+        }
+
+        setIsUploading(true);
+        setPreGalleryUploadingOrder(displayOrder);
+        setPreGalleryMessage(`Uploading image ${displayOrder}...`);
+
+        const existingImage = preGalleryImages.find((image) => image.display_order === displayOrder);
+
+        try {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `pregallery-${displayOrder}-${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('pregallery-images')
+                .upload(fileName, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data: publicUrlData } = supabase.storage.from('pregallery-images').getPublicUrl(uploadData.path);
+            const publicUrl = publicUrlData.publicUrl;
+
+            const { error: dbError } = await supabase
+                .from('pregallery_images')
+                .upsert([{
+                    image_url: publicUrl,
+                    display_order: displayOrder,
+                    uploaded_at: new Date().toISOString()
+                }], { onConflict: 'display_order' });
+
+            if (dbError) throw dbError;
+
+            if (existingImage?.image_url && existingImage.image_url !== publicUrl) {
+                try {
+                    const oldImageUrl = new URL(existingImage.image_url);
+                    const oldFileName = oldImageUrl.pathname.split('/').pop();
+
+                    if (oldFileName) {
+                        const { error: cleanupError } = await supabase.storage
+                            .from('pregallery-images')
+                            .remove([oldFileName]);
+
+                        if (cleanupError) {
+                            console.warn('Pre-gallery storage cleanup warning:', cleanupError);
+                        }
+                    }
+                } catch (cleanupError) {
+                    console.warn('Failed to parse old pre-gallery image URL', cleanupError);
+                }
+            }
+
+            setSelectedPreGalleryFiles((currentFiles) => ({
+                ...currentFiles,
+                [displayOrder]: null
+            }));
+            setPreGalleryError('');
+            setPreGalleryMessage(`Image ${displayOrder} updated successfully!`);
+            void fetchPreGalleryImages();
+            setTimeout(() => setPreGalleryMessage(''), 3000);
+        } catch (error) {
+            console.error('Pre-gallery upload error:', error);
+            setPreGalleryMessage(`Upload failed: ${getErrorMessage(error)}`);
+        } finally {
+            setIsUploading(false);
+            setPreGalleryUploadingOrder(null);
+        }
+    };
+
+    const handleUploadCMSImage = async (type: CmsType) => {
         const file = type === 'about' ? selectedAboutFile : selectedVisionFile;
         const bucket = type === 'about' ? 'about-images' : 'vision-images';
         const table = type === 'about' ? 'about_images' : 'vision_images';
@@ -575,17 +1205,17 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
             setMessage('Uploaded successfully!');
             setFile(null);
-            fetchFn();
+            void fetchFn();
             setTimeout(() => setMessage(''), 3000);
-        } catch (error: any) {
+        } catch (error) {
             console.error('Upload error:', error);
-            setMessage(`Upload failed: ${error.message}`);
+            setMessage(`Upload failed: ${getErrorMessage(error)}`);
         } finally {
             setIsUploading(false);
         }
     };
 
-    const handleDeleteCMSImage = async (type: 'about' | 'vision', id: string, imageUrl: string) => {
+    const handleDeleteCMSImage = async (type: CmsType, id: number, imageUrl: string) => {
         if (!confirm('Are you sure you want to delete this image?')) return;
 
         const bucket = type === 'about' ? 'about-images' : 'vision-images';
@@ -611,13 +1241,16 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 .eq('id', id);
 
             if (dbError) throw dbError;
+            if (storageError) {
+                console.warn('Storage deletion warning:', storageError);
+            }
 
             setMessage('Deleted successfully!');
-            fetchFn();
+            void fetchFn();
             setTimeout(() => setMessage(''), 3000);
-        } catch (error: any) {
+        } catch (error) {
             console.error('Delete error:', error);
-            setMessage(`Delete failed: ${error.message}`);
+            setMessage(`Delete failed: ${getErrorMessage(error)}`);
         }
     };
 
@@ -628,12 +1261,54 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         r.department?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const filteredFeedbacks = feedbacks.filter(f =>
-        f.message?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        f.feedback_type?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+    const filteredFeedbacks = feedbacks.filter((feedback) => {
+        const matchesSearch = !normalizedSearchTerm || [
+            feedback.message,
+            feedback.feedback_type,
+            feedback.name,
+            feedback.email,
+            feedback.employee_code,
+            feedback.contact_number,
+            feedback.location,
+            getFeedbackOrganisation(feedback),
+            feedback.department
+        ].some(value => String(value || '').toLowerCase().includes(normalizedSearchTerm));
 
-    const sortedEvents = [...calendarEvents].sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime());
+        const matchesType = feedbackTypeFilter === 'all'
+            || feedback.feedback_type?.toLowerCase() === feedbackTypeFilter;
+
+        return matchesSearch && matchesType;
+    });
+    const feedbackTypeOptions = ['all', ...new Set(
+        feedbacks
+            .map(feedback => feedback.feedback_type?.toLowerCase())
+            .filter((value): value is string => Boolean(value))
+    )];
+    const visibleGalleryCategories = galleryCategories.filter((category) =>
+        !normalizedSearchTerm || formatGalleryCategoryLabel(category.name).toLowerCase().includes(normalizedSearchTerm)
+    );
+    const galleryImagesByCategory = visibleGalleryCategories.map((category) => ({
+        category,
+        images: galleryImages.filter((image) => image.category_id === category.id)
+    }));
+
+    const sortedEvents = [...calendarEvents].sort((a, b) => {
+        const first = new Date(a.event_date);
+        const second = new Date(b.event_date);
+
+        if (a.event_time) {
+            const [hours = '0', minutes = '0'] = a.event_time.split(':');
+            first.setHours(Number(hours), Number(minutes), 0, 0);
+        }
+
+        if (b.event_time) {
+            const [hours = '0', minutes = '0'] = b.event_time.split(':');
+            second.setHours(Number(hours), Number(minutes), 0, 0);
+        }
+
+        return first.getTime() - second.getTime();
+    });
 
     return (
         <div className="min-h-screen bg-gray-50 pt-32 px-4 pb-12">
@@ -668,21 +1343,21 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                             onClick={() => setActiveTab('registrations')}
                             className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'registrations' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                         >
-                            <Users size={18} /> Registrations
+                            <Users size={18} /> Registration Data
                             <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{registrations.length}</span>
                         </button>
                         <button
                             onClick={() => setActiveTab('feedback')}
                             className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'feedback' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                         >
-                            <MessageSquare size={18} /> User Feedback
+                            <MessageSquare size={18} /> Feedback Data
                             <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{feedbacks.length}</span>
                         </button>
                         <button
                             onClick={() => setActiveTab('calendar')}
                             className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'calendar' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                         >
-                            <span className="font-bold">📅</span> Calendar
+                            <span className="font-bold">📅</span> Calendar Manager
                             <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{calendarEvents.length}</span>
                         </button>
                         <button
@@ -704,6 +1379,20 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                         >
                             <span className="font-bold">🏆</span> Hall of Fame
                             <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{hallOfFameEntries.length}</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('gallery-manager')}
+                            className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'gallery-manager' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            <span className="font-bold">🗂️</span> Gallery Manager
+                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{galleryImages.length}</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('pre-gallery')}
+                            className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'pre-gallery' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            <span className="font-bold">🖼️</span> Pre-Gallery Manager
+                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{preGalleryImages.length}</span>
                         </button>
                         <button
                             onClick={() => setActiveTab('about-cms')}
@@ -740,58 +1429,129 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                     ) : (
                         <div className="overflow-x-auto">
                             {activeTab === 'registrations' && (
-                                <table className="w-full text-left text-sm">
-                                    <thead className="bg-gray-50 border-b border-gray-100">
-                                        <tr>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">Employee Code</th>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">Name</th>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">Department</th>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">Sports</th>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">Date</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {filteredRegistrations.map((reg) => (
-                                            <tr key={reg.employee_code} className="hover:bg-gray-50/50 transition-colors">
-                                                <td className="px-6 py-4 font-medium text-gray-900">{reg.employee_code}</td>
-                                                <td className="px-6 py-4 text-gray-600">{reg.full_name}</td>
-                                                <td className="px-6 py-4 text-gray-600">
-                                                    <div className="flex flex-col">
-                                                        <span>{reg.department}</span>
-                                                        <span className="text-xs text-gray-400">{reg.designation}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-gray-600 max-w-xs truncate">
-                                                    {(() => {
-                                                        try {
-                                                            const sports = JSON.parse(reg.sports_interested);
-                                                            return Array.isArray(sports) ? sports.join(', ') : reg.sports_interested;
-                                                        } catch (e) {
-                                                            return reg.sports_interested;
-                                                        }
-                                                    })()}
-                                                </td>
-                                                <td className="px-6 py-4 text-gray-500 whitespace-nowrap">{formatDate(reg.created_at)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                <div className="p-6">
+                                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
+                                        <div>
+                                            <h3 className="text-xl font-bold text-gray-800">Registration Data Export</h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                {registrations.length} total registration{registrations.length === 1 ? '' : 's'}
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={handleDownloadRegistrationsCsv}
+                                            className="bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors font-medium shadow-sm self-start md:self-auto"
+                                        >
+                                            Download CSV
+                                        </button>
+                                    </div>
+
+                                    {registrationsError && (
+                                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                                            {registrationsError}
+                                        </div>
+                                    )}
+
+                                    <div className="overflow-hidden rounded-xl border border-gray-200">
+                                        <table className="w-full text-left text-sm">
+                                            <thead className="bg-gray-50 border-b border-gray-100">
+                                                <tr>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Employee Code</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Full Name</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Location</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Organisation</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Department</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Designation</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Email</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Interested Sports</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Submitted At</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {filteredRegistrations.map((reg, index) => (
+                                                    <tr
+                                                        key={reg.id ?? `${reg.employee_code}-${reg.created_at}-${index}`}
+                                                        className="hover:bg-gray-50/50 transition-colors"
+                                                    >
+                                                        <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{reg.employee_code}</td>
+                                                        <td className="px-6 py-4 text-gray-600">{reg.full_name}</td>
+                                                        <td className="px-6 py-4 text-gray-600">{reg.location || '—'}</td>
+                                                        <td className="px-6 py-4 text-gray-600">{getRegistrationOrganisation(reg) || '—'}</td>
+                                                        <td className="px-6 py-4 text-gray-600">{reg.department || '—'}</td>
+                                                        <td className="px-6 py-4 text-gray-600">{reg.designation || '—'}</td>
+                                                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">{reg.email || '—'}</td>
+                                                        <td className="px-6 py-4 text-gray-600 min-w-64 whitespace-normal">
+                                                            {formatRegistrationSports(reg.sports_interested, reg.other_sport) || '—'}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-gray-500 whitespace-nowrap">{formatRegistrationSubmittedAt(reg.created_at)}</td>
+                                                    </tr>
+                                                ))}
+                                                {filteredRegistrations.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan={9} className="px-6 py-12 text-center text-gray-400">
+                                                            {registrations.length === 0 ? 'No registrations found' : 'No registrations match the current search'}
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             )}
 
                             {activeTab === 'feedback' && (
-                                <table className="w-full text-left text-sm">
-                                    <thead className="bg-gray-50 border-b border-gray-100">
-                                        <tr>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">Type</th>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">Rating</th>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">Message</th>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">From</th>
-                                            <th className="px-6 py-4 font-semibold text-gray-600">Date</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
+                                <div className="p-6">
+                                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+                                        <div>
+                                            <h3 className="text-xl font-bold text-gray-800">Feedback Data Export</h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                {feedbacks.length} total feedback entr{feedbacks.length === 1 ? 'y' : 'ies'}
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-col sm:flex-row gap-3 self-start md:self-auto">
+                                            <select
+                                                value={feedbackTypeFilter}
+                                                onChange={(event) => setFeedbackTypeFilter(event.target.value)}
+                                                className="px-4 py-2 rounded-xl border border-gray-300 bg-white text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                            >
+                                                {feedbackTypeOptions.map((option) => (
+                                                    <option key={option} value={option}>
+                                                        {option === 'all' ? 'All Types' : option.charAt(0).toUpperCase() + option.slice(1)}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={handleDownloadFeedbackCsv}
+                                                className="bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors font-medium shadow-sm"
+                                            >
+                                                Download CSV
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {feedbackError && (
+                                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                                            {feedbackError}
+                                        </div>
+                                    )}
+
+                                    <div className="overflow-hidden rounded-xl border border-gray-200">
+                                        <table className="w-full text-left text-sm">
+                                            <thead className="bg-gray-50 border-b border-gray-100">
+                                                <tr>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Type</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Rating</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Message</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Identity</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Email</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Employee Code</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Contact</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Location / Org / Dept</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Submitted At</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
                                         {filteredFeedbacks.map((fb) => (
-                                            <tr key={fb.id} className="hover:bg-gray-50/50 transition-colors">
+                                            <tr key={fb.id} className="hover:bg-gray-50/50 transition-colors align-top">
                                                 <td className="px-6 py-4">
                                                     <span className={`px-2 py-1 rounded-lg text-xs font-medium capitalize
                                                         ${fb.feedback_type === 'suggestion' ? 'bg-blue-50 text-blue-600' :
@@ -806,23 +1566,79 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                         <span className="text-gray-200">{'★'.repeat(5 - fb.experience_rating)}</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 text-gray-600 max-w-md">{fb.message}</td>
+                                                <td className="px-6 py-4 text-gray-600 max-w-md whitespace-pre-wrap">{fb.message}</td>
                                                 <td className="px-6 py-4 text-gray-600">
-                                                    {fb.name || <span className="text-gray-400 italic">Anonymous</span>}
+                                                    {isAnonymousFeedback(fb) ? (
+                                                        <div className="flex flex-col gap-1">
+                                                            <span className="inline-flex w-fit rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+                                                                Anonymous / Discreet
+                                                            </span>
+                                                            <span className="text-xs text-gray-400">No personal details shared</span>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-1">
+                                                            <div className="font-medium text-gray-800">{fb.name || 'Unnamed'}</div>
+                                                            {!fb.name && (
+                                                                <div className="text-xs text-gray-400">Identity partially provided</div>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </td>
-                                                <td className="px-6 py-4 text-gray-500 whitespace-nowrap">{formatDate(fb.submitted_at)}</td>
+                                                <td className="px-6 py-4 text-gray-600">
+                                                    {fb.email || <span className="text-gray-400">-</span>}
+                                                </td>
+                                                <td className="px-6 py-4 text-gray-600">
+                                                    {fb.employee_code || <span className="text-gray-400">-</span>}
+                                                </td>
+                                                <td className="px-6 py-4 text-gray-600">
+                                                    {fb.contact_number || <span className="text-gray-400">-</span>}
+                                                </td>
+                                                <td className="px-6 py-4 text-gray-600">
+                                                    <div className="space-y-1">
+                                                        <div>{fb.location || <span className="text-gray-400">No location</span>}</div>
+                                                        <div className="text-xs text-gray-500">{getFeedbackOrganisation(fb) || 'No organisation'}</div>
+                                                        <div className="text-xs text-gray-400">{fb.department || 'No department'}</div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-gray-500 whitespace-nowrap">{formatRegistrationSubmittedAt(fb.submitted_at)}</td>
                                             </tr>
                                         ))}
-                                    </tbody>
-                                </table>
+                                        {filteredFeedbacks.length === 0 && (
+                                            <tr>
+                                                <td colSpan={9} className="px-6 py-10 text-center text-gray-500">
+                                                    {feedbacks.length === 0
+                                                        ? 'No feedback entries found.'
+                                                        : 'No feedback entries match the current search or filter.'}
+                                                </td>
+                                            </tr>
+                                        )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             )}
 
                             {activeTab === 'calendar' && (
                                 <div className="p-6">
+                                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
+                                        <div>
+                                            <h3 className="text-xl font-bold text-gray-800">Calendar Manager</h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                {sortedEvents.length} total event{sortedEvents.length === 1 ? '' : 's'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {calendarError && (
+                                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                                            {calendarError}
+                                        </div>
+                                    )}
+
                                     {/* Add/Edit Form */}
                                     <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mb-8">
-                                        <h3 className="text-lg font-bold text-gray-800 mb-4">{isEditingEvent ? 'Edit Event' : 'Add New Event'}</h3>
-                                        <div className="grid md:grid-cols-4 gap-4">
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">{isEditingEvent ? 'Edit Event' : 'Add New Event'}</h4>
+                                        <div className="grid md:grid-cols-5 gap-4">
                                             <div className="md:col-span-1">
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">Sport</label>
                                                 <input
@@ -850,6 +1666,15 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                     className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
                                                     value={currentEvent.event_date}
                                                     onChange={e => setCurrentEvent({ ...currentEvent, event_date: e.target.value })}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                                                <input
+                                                    type="time"
+                                                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    value={currentEvent.event_time ?? ''}
+                                                    onChange={e => setCurrentEvent({ ...currentEvent, event_time: e.target.value })}
                                                 />
                                             </div>
                                             <div>
@@ -898,6 +1723,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                     <th className="px-6 py-4 font-semibold text-gray-600">Sport</th>
                                                     <th className="px-6 py-4 font-semibold text-gray-600">Event Name</th>
                                                     <th className="px-6 py-4 font-semibold text-gray-600">Date</th>
+                                                    <th className="px-6 py-4 font-semibold text-gray-600">Time</th>
                                                     <th className="px-6 py-4 font-semibold text-gray-600">Type</th>
                                                     <th className="px-6 py-4 font-semibold text-gray-600 text-right">Actions</th>
                                                 </tr>
@@ -908,6 +1734,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                         <td className="px-6 py-4 font-medium text-gray-900">{evt.sport}</td>
                                                         <td className="px-6 py-4 text-gray-600">{evt.event_name}</td>
                                                         <td className="px-6 py-4 text-gray-600">{formatDate(evt.event_date)}</td>
+                                                        <td className="px-6 py-4 text-gray-600 whitespace-nowrap">{formatEventTime(evt.event_time)}</td>
                                                         <td className="px-6 py-4">
                                                             <span className={`px-2 py-1 rounded-lg text-xs font-medium
                                                                 ${evt.event_type === 'Internal' ? 'bg-green-50 text-green-600' :
@@ -934,7 +1761,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                 ))}
                                                 {sortedEvents.length === 0 && (
                                                     <tr>
-                                                        <td colSpan={5} className="px-6 py-12 text-center text-gray-400">No events found</td>
+                                                        <td colSpan={6} className="px-6 py-12 text-center text-gray-400">No events found</td>
                                                     </tr>
                                                 )}
                                             </tbody>
@@ -952,7 +1779,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                 onClick={() => {
                                                     setIsAddingWhatsNew(true);
                                                     setEditingWhatsNew(null);
-                                                    setTempWhatsNew({ title: '', description: '', icon_type: 'Bell' });
+                                                    setTempWhatsNew(DEFAULT_WHATS_NEW);
                                                 }}
                                                 className="bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors font-medium flex items-center gap-2 shadow-sm"
                                             >
@@ -990,7 +1817,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                     <select
                                                         className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
                                                         value={tempWhatsNew.icon_type}
-                                                        onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, icon_type: e.target.value })}
+                                                        onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, icon_type: e.target.value as IconType })}
                                                     >
                                                         <option value="Bell">Bell</option>
                                                         <option value="Award">Award</option>
@@ -1047,7 +1874,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                             <select
                                                                 className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-blue-50/10"
                                                                 value={tempWhatsNew.icon_type}
-                                                                onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, icon_type: e.target.value })}
+                                                                onChange={(e) => setTempWhatsNew({ ...tempWhatsNew, icon_type: e.target.value as IconType })}
                                                             >
                                                                 <option value="Bell">Bell</option>
                                                                 <option value="Award">Award</option>
@@ -1200,7 +2027,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                 <button
                                                     onClick={() => {
                                                         setIsEditingUpcomingEvent(false);
-                                                        setCurrentUpcomingEvent({ id: 0, event_name: '', event_date: '', event_time: '', event_venue: '', event_image: '' });
+                                                        setCurrentUpcomingEvent(DEFAULT_UPCOMING_EVENT);
                                                         setSelectedImage(null);
                                                         setUpcomingEventMessage('');
                                                     }}
@@ -1350,15 +2177,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                 <button
                                                     onClick={() => {
                                                         setIsEditingHallOfFame(false);
-                                                        setCurrentHallOfFameEntry({
-                                                            id: 0,
-                                                            event_name: '',
-                                                            event_date: '',
-                                                            event_venue: '',
-                                                            winner_name: '',
-                                                            achievement_type: 'Winner',
-                                                            event_image: ''
-                                                        });
+                                                        setCurrentHallOfFameEntry(DEFAULT_HALL_OF_FAME_ENTRY);
                                                         setHallOfFameMessage('');
                                                     }}
                                                     className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 transition-colors font-semibold"
@@ -1420,6 +2239,219 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                 )}
                                             </tbody>
                                         </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'gallery-manager' && (
+                                <div className="p-6">
+                                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
+                                        <div>
+                                            <h3 className="text-xl font-bold text-gray-800">Gallery Manager</h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                {galleryImages.length} total image{galleryImages.length === 1 ? '' : 's'} across {galleryCategories.length} categor{galleryCategories.length === 1 ? 'y' : 'ies'}.
+                                            </p>
+                                        </div>
+                                        {galleryMessage && (
+                                            <span className={`text-sm px-3 py-1 rounded-full self-start ${galleryMessage.includes('failed') ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+                                                {galleryMessage}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mb-8">
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">Upload Gallery Image</h4>
+                                        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={(event) => setSelectedGalleryFile(event.target.files?.[0] || null)}
+                                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                            />
+                                            <select
+                                                value={selectedGalleryCategoryId}
+                                                onChange={(event) => setSelectedGalleryCategoryId(event.target.value)}
+                                                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                            >
+                                                <option value="">Select category</option>
+                                                {galleryCategories.map((category) => (
+                                                    <option key={category.id} value={category.id}>
+                                                        {formatGalleryCategoryLabel(category.name)}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={handleUploadGalleryImage}
+                                                disabled={isGalleryUploading || !selectedGalleryFile || !selectedGalleryCategoryId}
+                                                className="rounded-xl bg-blue-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                                            >
+                                                {isGalleryUploading ? 'Uploading...' : 'Upload Image'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {galleryError && (
+                                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                                            {galleryError}
+                                        </div>
+                                    )}
+
+                                    {galleryManagerLoading && (
+                                        <div className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 px-6 py-8 text-center text-gray-500">
+                                            Loading gallery manager data...
+                                        </div>
+                                    )}
+
+                                    {!galleryManagerLoading && galleryCategories.length === 0 && (
+                                        <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-gray-500">
+                                            No gallery categories are available yet.
+                                        </div>
+                                    )}
+
+                                    {!galleryManagerLoading && galleryCategories.length > 0 && visibleGalleryCategories.length === 0 && (
+                                        <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-gray-500">
+                                            No gallery categories match the current search.
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-8">
+                                        {galleryImagesByCategory.map(({ category, images }) => (
+                                            <section key={category.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
+                                                    <div>
+                                                        <h4 className="text-lg font-bold text-gray-800">{formatGalleryCategoryLabel(category.name)}</h4>
+                                                        <p className="text-sm text-gray-500">
+                                                            {images.length} image{images.length === 1 ? '' : 's'} in this folder
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                {images.length === 0 ? (
+                                                    <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-gray-400">
+                                                        No images uploaded to {formatGalleryCategoryLabel(category.name)} yet.
+                                                    </div>
+                                                ) : (
+                                                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                                                        {images.map((image) => (
+                                                            <div key={image.id} className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+                                                                <div className="aspect-[4/3] overflow-hidden bg-white">
+                                                                    <img src={image.image_url} alt={formatGalleryCategoryLabel(category.name)} className="h-full w-full object-cover" />
+                                                                </div>
+                                                                <div className="space-y-3 p-4">
+                                                                    <div className="text-xs text-gray-500">
+                                                                        {image.uploaded_at ? formatRegistrationSubmittedAt(image.uploaded_at) : 'Recently uploaded'}
+                                                                    </div>
+                                                                    <select
+                                                                        value={image.category_id}
+                                                                        onChange={(event) => handleMoveGalleryImage(image.id, Number(event.target.value))}
+                                                                        className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                                    >
+                                                                        {galleryCategories.map((galleryCategory) => (
+                                                                            <option key={galleryCategory.id} value={galleryCategory.id}>
+                                                                                {formatGalleryCategoryLabel(galleryCategory.name)}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                    <button
+                                                                        onClick={() => handleDeleteGalleryImage(image.id, image.image_url)}
+                                                                        className="w-full rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
+                                                                    >
+                                                                        Delete Image
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </section>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'pre-gallery' && (
+                                <div className="p-6">
+                                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
+                                        <div>
+                                            <h3 className="text-xl font-bold text-gray-800">Pre-Gallery Manager</h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                {preGalleryImages.length} of {PRE_GALLERY_SLOTS.length} preview slots configured.
+                                            </p>
+                                        </div>
+                                        {preGalleryMessage && (
+                                            <span className={`text-sm px-3 py-1 rounded-full self-start ${preGalleryMessage.includes('failed') ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+                                                {preGalleryMessage}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {preGalleryError && (
+                                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                                            {preGalleryError}
+                                        </div>
+                                    )}
+
+                                    {preGalleryImages.length === 0 && (
+                                        <div className="mb-6 rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-gray-500">
+                                            No pre-gallery images managed yet. Upload images for slots 1, 2, and 3 below.
+                                        </div>
+                                    )}
+
+                                    <div className="grid gap-6 lg:grid-cols-3">
+                                        {PRE_GALLERY_SLOTS.map((slot) => {
+                                            const currentImage = preGalleryImages.find((image) => image.display_order === slot);
+
+                                            return (
+                                                <div key={slot} className="rounded-2xl border border-gray-200 bg-gray-50 p-5 shadow-sm">
+                                                    <div className="flex items-center justify-between mb-4">
+                                                        <div>
+                                                            <h4 className="text-lg font-semibold text-gray-800">Image {slot}</h4>
+                                                            <p className="text-sm text-gray-500">
+                                                                {currentImage ? `Display order ${currentImage.display_order}` : 'No image uploaded yet'}
+                                                            </p>
+                                                        </div>
+                                                        {currentImage?.uploaded_at && (
+                                                            <span className="text-xs text-gray-400">
+                                                                {formatRegistrationSubmittedAt(currentImage.uploaded_at)}
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="aspect-[4/3] overflow-hidden rounded-2xl border border-gray-200 bg-white mb-4">
+                                                        {currentImage ? (
+                                                            <img
+                                                                src={currentImage.image_url}
+                                                                alt={`Pre-gallery slot ${slot}`}
+                                                                className="h-full w-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div className="flex h-full items-center justify-center text-sm text-gray-400">
+                                                                Slot {slot} is empty
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="space-y-3">
+                                                        <input
+                                                            type="file"
+                                                            accept="image/*"
+                                                            onChange={(event) => setSelectedPreGalleryFiles((currentFiles) => ({
+                                                                ...currentFiles,
+                                                                [slot]: event.target.files?.[0] || null
+                                                            }))}
+                                                            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                                        />
+                                                        <button
+                                                            onClick={() => handleUploadPreGalleryImage(slot)}
+                                                            disabled={isUploading || !selectedPreGalleryFiles[slot]}
+                                                            className="w-full rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                                                        >
+                                                            {preGalleryUploadingOrder === slot ? 'Uploading...' : currentImage ? 'Replace Image' : 'Upload Image'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}

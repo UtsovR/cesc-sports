@@ -17,18 +17,29 @@ import AdminDashboard from './components/AdminDashboard';
 import About from './components/About';
 import Vision from './components/Vision';
 import HallOfFame from './components/HallOfFame';
+import { supabase } from './lib/supabase';
 
 // Import images for Gallery Preview
 import galleryPreview1 from './assets/gallery-images/21.JPG';
 import galleryPreview2 from './assets/gallery-images/30.jpg';
 import galleryPreview3 from './assets/gallery-images/39.jpeg';
 
+interface PreGalleryImage {
+  id: number;
+  image_url: string;
+  display_order: number;
+}
+
 function App() {
+  const fallbackPreGalleryImages = [galleryPreview1, galleryPreview2, galleryPreview3];
   // Initialize state from URL param or default to 'home'
   const [currentPage, setCurrentPage] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('page') || 'home';
   });
+  const [preGalleryImages, setPreGalleryImages] = useState<PreGalleryImage[]>([]);
+  const [preGalleryLoading, setPreGalleryLoading] = useState(true);
+  const [preGalleryError, setPreGalleryError] = useState('');
 
   // Handle browser back/forward buttons
   useEffect(() => {
@@ -65,6 +76,48 @@ function App() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [currentPage]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchPreGalleryImages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('pregallery_images')
+          .select('id, image_url, display_order')
+          .order('display_order', { ascending: true });
+
+        if (error) {
+          throw error;
+        }
+
+        if (isMounted) {
+          setPreGalleryImages(data || []);
+          setPreGalleryError('');
+        }
+      } catch (error) {
+        console.error('Failed to load pre-gallery images:', error);
+        if (isMounted) {
+          setPreGalleryError('Showing default preview images while admin-managed images are unavailable.');
+        }
+      } finally {
+        if (isMounted) {
+          setPreGalleryLoading(false);
+        }
+      }
+    };
+
+    void fetchPreGalleryImages();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const previewImages = fallbackPreGalleryImages.map((fallbackImage, index) => (
+    preGalleryImages.find((image) => image.display_order === index + 1)?.image_url || fallbackImage
+  ));
+  const isUsingPreGalleryFallback = preGalleryImages.length < 3;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-cyan-50">
@@ -118,8 +171,16 @@ function App() {
               </button>
             </div>
 
+            {(preGalleryLoading || preGalleryError || isUsingPreGalleryFallback) && (
+              <p className="mb-4 text-sm text-gray-500">
+                {preGalleryLoading
+                  ? 'Loading latest preview...'
+                  : preGalleryError || 'Some preview slots are using default images until all three admin-managed images are uploaded.'}
+              </p>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[galleryPreview1, galleryPreview2, galleryPreview3].map((img, idx) => (
+              {previewImages.map((img, idx) => (
                 <div key={idx} className="aspect-[4/3] rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow cursor-pointer" onClick={() => navigateTo('gallery')}>
                   <img
                     src={img}
@@ -136,24 +197,6 @@ function App() {
       {currentPage === 'about' && <About />}
 
       {currentPage === 'vision' && <Vision />}
-
-      {currentPage === 'contact' && (
-        <div className="pt-24 px-4 max-w-7xl mx-auto">
-          <div className="backdrop-blur-xl bg-white/40 rounded-3xl p-12 border border-white/50 shadow-2xl">
-            <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent mb-8">Contact Us</h1>
-            <div className="grid md:grid-cols-2 gap-8">
-              <div>
-                <h3 className="text-xl font-semibold mb-4">Address</h3>
-                <p className="text-gray-700">CESC Officers' Sports Club<br />Kolkata, West Bengal</p>
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold mb-4">Get in Touch</h3>
-                <p className="text-gray-700">Email: info@cescsportsclub.com<br />Phone: +91 XXXX XXXXXX</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {currentPage === 'register' && <Registration />}
 

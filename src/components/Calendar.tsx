@@ -2,8 +2,57 @@ import { Calendar as CalendarIcon, Search } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import BackButton from './BackButton';
 import { supabase } from '../lib/supabase';
+import { normalizeCalendarEvent } from '../lib/calendarEventTime';
 
-const INITIAL_EVENTS = [
+interface CalendarEvent {
+    id: number;
+    sport: string;
+    event_name: string;
+    event_date: string;
+    event_type: string;
+    event_time?: string | null;
+    displayDate?: string;
+    updated_at?: string | null;
+}
+
+interface ParsedCalendarEvent extends CalendarEvent {
+    name: string;
+    dateDisplay: string;
+    timeDisplay: string;
+}
+
+const formatEventDate = (evt: CalendarEvent) => {
+    if (evt.displayDate) {
+        return evt.displayDate;
+    }
+
+    return new Date(evt.event_date).toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+    });
+};
+
+const formatEventTime = (time?: string | null) => {
+    if (!time) {
+        return 'TBD';
+    }
+
+    const [hoursString = '0', minutesString = '0'] = time.split(':');
+    const hours = Number(hoursString);
+    const minutes = Number(minutesString);
+
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+        return time;
+    }
+
+    return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString('en-IN', {
+        hour: 'numeric',
+        minute: '2-digit'
+    });
+};
+
+const INITIAL_EVENTS: CalendarEvent[] = [
     { id: -1, sport: 'Tennis', event_name: "CHAIRMAN'S CUP", event_date: '2025-12-01', displayDate: "DEC-JAN'26", event_type: 'Internal' },
     { id: -2, sport: 'Tennis', event_name: "MONSOON CARNIVAL", event_date: '2025-09-01', displayDate: "SEP'25", event_type: 'Internal' },
     { id: -3, sport: 'Cricket', event_name: "9A SIDE INTER DEPT.", event_date: '2026-02-01', displayDate: "FEB'26", event_type: 'Internal' },
@@ -20,7 +69,7 @@ const INITIAL_EVENTS = [
 ];
 
 export default function Calendar() {
-    const [events, setEvents] = useState<any[]>([]);
+    const [events, setEvents] = useState<CalendarEvent[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
@@ -35,7 +84,7 @@ export default function Calendar() {
                 setEvents(INITIAL_EVENTS);
             } else {
                 // Merge static events with database events
-                const dbEvents = data || [];
+                const dbEvents = (data || []).map((event) => normalizeCalendarEvent(event as CalendarEvent));
                 setEvents([...INITIAL_EVENTS, ...dbEvents]);
             }
         };
@@ -44,24 +93,13 @@ export default function Calendar() {
     }, []);
 
     // Helper to format date
-    const parseEvent = (evt: any) => {
-        if (evt.displayDate) {
-            return {
-                ...evt,
-                sport: evt.sport || 'Others',
-                name: evt.event_name,
-                dateDisplay: evt.displayDate
-            };
-        }
-        // Month formatting from actual date
-        const dateObj = new Date(evt.event_date);
-        const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) + "'"; // e.g. Dec'25
-
+    const parseEvent = (evt: CalendarEvent): ParsedCalendarEvent => {
         return {
             ...evt,
-            sport: evt.sport || 'General',
+            sport: evt.sport || (evt.displayDate ? 'Others' : 'General'),
             name: evt.event_name,
-            dateDisplay: dateStr
+            dateDisplay: formatEventDate(evt),
+            timeDisplay: formatEventTime(evt.event_time)
         };
     };
 
@@ -109,6 +147,7 @@ export default function Calendar() {
                                 <th className="p-4 font-bold tracking-wider uppercase text-sm">Sport</th>
                                 <th className="p-4 font-bold tracking-wider uppercase text-sm">Event Name</th>
                                 <th className="p-4 font-bold tracking-wider uppercase text-sm">Date</th>
+                                <th className="p-4 font-bold tracking-wider uppercase text-sm">Time</th>
                                 <th className="p-4 font-bold tracking-wider uppercase text-sm">Type</th>
                             </tr>
                         </thead>
@@ -128,6 +167,9 @@ export default function Calendar() {
                                     <td className="p-4 text-cyan-200 font-mono">
                                         {event.dateDisplay}
                                     </td>
+                                    <td className="p-4 text-cyan-200 whitespace-nowrap">
+                                        {event.timeDisplay}
+                                    </td>
                                     <td className="p-4">
                                         <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide border ${event.event_type === 'Internal'
                                             ? 'bg-emerald-400/10 border-emerald-400/30 text-emerald-300'
@@ -140,7 +182,7 @@ export default function Calendar() {
                             ))}
                             {filteredEvents.length === 0 && (
                                 <tr>
-                                    <td colSpan={4} className="p-8 text-center text-blue-300/50">
+                                    <td colSpan={5} className="p-8 text-center text-blue-300/50">
                                         No events found matching your search.
                                     </td>
                                 </tr>

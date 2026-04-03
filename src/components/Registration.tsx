@@ -3,6 +3,9 @@ import { User, Mail, Building2, Badge, Trophy, Send, CheckCircle, AlertCircle, M
 import BackButton from './BackButton';
 import { supabase } from '../lib/supabase';
 
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Registration failed';
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function Registration() {
     const [formData, setFormData] = useState({
         employeeCode: '',
@@ -35,19 +38,52 @@ export default function Registration() {
         setStatus('submitting');
         setErrorMessage('');
 
+        const employeeCode = formData.employeeCode.trim();
+        const name = formData.name.trim();
+        const location = formData.location.trim();
+        const organisation = formData.organisation.trim();
+        const department = formData.department.trim();
+        const designation = formData.designation.trim();
+        const email = formData.email.trim();
+        const otherSport = formData.otherSport.trim();
+
+        if (!/^\d{6}$/.test(employeeCode)) {
+            setStatus('error');
+            setErrorMessage('Employee Code must be exactly 6 digits.');
+            return;
+        }
+
+        if (!emailPattern.test(email)) {
+            setStatus('error');
+            setErrorMessage('Please enter a valid email address.');
+            return;
+        }
+
+        if (formData.sports.length === 0) {
+            setStatus('error');
+            setErrorMessage('Please select at least one sport.');
+            return;
+        }
+
+        if (formData.sports.includes('Others') && !otherSport) {
+            setStatus('error');
+            setErrorMessage('Please specify the sport under Others.');
+            return;
+        }
+
         try {
             const { error } = await supabase
                 .from('registrations')
                 .insert([{
-                    employee_code: formData.employeeCode,
-                    full_name: formData.name,
-                    location: formData.location,
-                    organization: formData.organisation,
-                    department: formData.department,
-                    designation: formData.designation,
-                    email: formData.email,
+                    employee_code: employeeCode,
+                    full_name: name,
+                    location,
+                    organization: organisation,
+                    department,
+                    designation,
+                    email,
                     sports_interested: formData.sports,
-                    other_sport: formData.otherSport
+                    other_sport: otherSport
                 }]);
 
             if (error) throw error;
@@ -64,10 +100,10 @@ export default function Registration() {
                 sports: [],
                 otherSport: ''
             });
-        } catch (error: any) {
+        } catch (error) {
             console.error('Registration Error:', error);
             setStatus('error');
-            setErrorMessage(error.message || 'Registration failed');
+            setErrorMessage(getErrorMessage(error));
         }
     };
 
