@@ -57,10 +57,13 @@ export default function About() {
                         </h1>
                         <div className="space-y-4 text-lg text-gray-700 leading-relaxed">
                             <p>
-                                CESC Officers’ Sports Club (CESCOSC) was established in the year 1988, with CESC House as its Registered Office, to bring colleagues together around a shared passion for sports. At its inception, the club had only seven Officers from different departments of the company as members. Back then, Lawn Tennis was the sport that the club focused on.
+                                CESC Officers' Sports Club (CESCOSC) was established in 1988, with CESC House as its registered office, to bring colleagues together through a shared passion for sport, teamwork, and community. What began with seven officers from different departments of the company and an early focus on lawn tennis has grown into a proud institutional platform for participation, discipline, and sporting character.
                             </p>
                             <p>
-                                Over the years, the club has grown and has inducted several other sporting activities like Cricket, Football, Table Tennis, Badminton and other Fitness Workshops.
+                                Over the decades, the club has expanded to include Cricket, Football, Table Tennis, Badminton, fitness workshops, and other activities that encourage active living, friendly competition, and collective pride. The club continues to create opportunities for employees and families to come together, stay engaged, and celebrate the spirit of sport.
+                            </p>
+                            <p>
+                                Since 1995, CESC Officers' Sports Club has carried forward a visible legacy of sporting excellence by nurturing talent, strengthening community bonds, and inspiring members to pursue their best on and off the field. The club remains committed to building a culture where participation, teamwork, and achievement continue to thrive.
                             </p>
                         </div>
                     </div>

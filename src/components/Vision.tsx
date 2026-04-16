@@ -62,7 +62,7 @@ export default function Vision() {
                                     Vision
                                 </h2>
                                 <p className="text-lg text-gray-700 leading-relaxed">
-                                    To foster a sporting culture among CESC Officers which transpires to better teamwork, increased productivity, improved well-being and enhanced work-life balance.
+                                    To advance a vibrant sporting culture across the CESC community by inspiring participation, strengthening teamwork, promoting well-being, and sustaining a proud legacy of sporting excellence.
                                 </p>
                             </div>
                             <div>
@@ -71,7 +71,7 @@ export default function Vision() {
                                     Mission
                                 </h2>
                                 <p className="text-lg text-gray-700 leading-relaxed">
-                                    By organising various sports events and offering access to sporting facilities, we aim to motivate our CESC officers and their families to prioritize fitness. Additionally, we strive to develop talent and proudly represent CESC in numerous inter-corporate events.
+                                    By organizing sporting events, expanding access to facilities, and encouraging active participation among employees and their families, we aim to develop talent, build character, celebrate inclusion, and uphold the competitive spirit that enables CESC to excel in inter-corporate sport.
                                 </p>
                             </div>
                         </div>

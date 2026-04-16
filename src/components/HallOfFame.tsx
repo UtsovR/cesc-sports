@@ -10,8 +10,9 @@ interface HallOfFameEntry {
     event_venue: string;
     winner_name: string;
     achievement_type: string;
-    event_image: string;
+    event_image: string | null;
 }
+const EMPTY_IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
 export default function HallOfFame() {
     const [entries, setEntries] = useState<HallOfFameEntry[]>([]);
@@ -45,6 +46,18 @@ export default function HallOfFame() {
         return <Award className="text-blue-500" size={24} />;
     };
 
+    const getImageUrl = (imagePath?: string | null) => {
+        if (!imagePath) {
+            return EMPTY_IMAGE_PLACEHOLDER;
+        }
+
+        if (imagePath.startsWith('http') || imagePath.startsWith('https')) {
+            return imagePath;
+        }
+
+        return supabase.storage.from('hall_of_fame').getPublicUrl(imagePath).data.publicUrl;
+    };
+
     return (
         <div className="pt-24 pb-16 px-4 min-h-screen">
             <div className="max-w-7xl mx-auto">
@@ -56,7 +69,7 @@ export default function HallOfFame() {
                         Hall of Fame
                     </h1>
                     <p className="text-xl md:text-2xl text-gray-600 font-light italic max-w-3xl mx-auto leading-relaxed">
-                        "Great achievements are milestones of dedication and teamwork."
+                        "Every honor reflects dedication, teamwork, and the club's enduring pursuit of excellence."
                     </p>
                     <div className="h-1 w-24 bg-gradient-to-r from-amber-500 to-orange-500 mx-auto mt-8 rounded-full"></div>
                 </div>
@@ -70,7 +83,7 @@ export default function HallOfFame() {
                     <div className="text-center py-12 bg-white/50 backdrop-blur-md rounded-3xl border border-white/60 shadow-xl">
                         <Trophy className="mx-auto h-16 w-16 text-gray-300 mb-4" />
                         <h3 className="text-xl font-medium text-gray-600">No entries yet</h3>
-                        <p className="text-gray-500 mt-2">Check back soon for our legendary achievements!</p>
+                        <p className="text-gray-500 mt-2">Check back soon as we celebrate the next chapter in our sporting legacy.</p>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -83,9 +96,7 @@ export default function HallOfFame() {
                                 <div className="relative h-64 overflow-hidden">
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent z-10 opacity-60 group-hover:opacity-40 transition-opacity"></div>
                                     <img
-                                        src={entry.event_image.startsWith('http')
-                                            ? entry.event_image
-                                            : supabase.storage.from('hall_of_fame').getPublicUrl(entry.event_image).data.publicUrl}
+                                        src={getImageUrl(entry.event_image)}
                                         alt={entry.event_name}
                                         className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-700"
                                     />

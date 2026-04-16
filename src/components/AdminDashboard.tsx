@@ -7,6 +7,12 @@ import {
     isCalendarEventTimeColumnMissingError,
     normalizeCalendarEvent
 } from '../lib/calendarEventTime';
+import {
+    formatUpcomingEventDateValue,
+    formatUpcomingEventTimeValue,
+    normalizeUpcomingEventDateValue,
+    normalizeUpcomingEventTimeValue
+} from '../lib/upcomingEventDateTime';
 
 const INITIAL_EVENTS = [
     { id: -1, sport: 'Tennis', event_name: "CHAIRMAN'S CUP", event_date: '2025-12-01', displayDate: "DEC-JAN'26", event_type: 'Internal' },
@@ -99,7 +105,7 @@ interface UpcomingEvent {
     event_date: string;
     event_time: string;
     event_venue: string;
-    event_image: string;
+    event_image: string | null;
     updated_at?: string;
 }
 
@@ -110,7 +116,7 @@ interface HallOfFameEntry {
     event_venue: string;
     winner_name: string;
     achievement_type: string;
-    event_image: string;
+    event_image: string | null;
     updated_at?: string;
 }
 
@@ -174,6 +180,7 @@ const DEFAULT_HALL_OF_FAME_ENTRY: HallOfFameEntry = {
     achievement_type: 'Winner',
     event_image: ''
 };
+const EMPTY_IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
 const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unknown error';
 
@@ -763,8 +770,8 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         }
     };
 
-    const getImageUrl = (imagePath: string) => {
-        if (!imagePath) return '';
+    const getImageUrl = (imagePath?: string | null) => {
+        if (!imagePath) return EMPTY_IMAGE_PLACEHOLDER;
         if (imagePath.startsWith('http') || imagePath.startsWith('https')) {
             return imagePath;
         }
@@ -780,12 +787,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             return;
         }
 
-        if (!isEditingUpcomingEvent && !selectedImage) {
-            setUpcomingEventMessage('Please select an image for new events.');
+        const normalizedUpcomingEventDate = normalizeUpcomingEventDateValue(currentUpcomingEvent.event_date);
+        const normalizedUpcomingEventTime = normalizeUpcomingEventTimeValue(currentUpcomingEvent.event_time);
+
+        if (!normalizedUpcomingEventDate || !normalizedUpcomingEventTime) {
+            setUpcomingEventMessage('Please select a valid date and time.');
             return;
         }
-
-
 
         try {
             let imagePath = currentUpcomingEvent.event_image;
@@ -803,10 +811,10 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
             const eventData = {
                 event_name: currentUpcomingEvent.event_name,
-                event_date: currentUpcomingEvent.event_date,
-                event_time: currentUpcomingEvent.event_time,
+                event_date: normalizedUpcomingEventDate,
+                event_time: normalizedUpcomingEventTime,
                 event_venue: currentUpcomingEvent.event_venue,
-                event_image: imagePath,
+                event_image: imagePath || '',
                 updated_at: new Date().toISOString()
             };
 
@@ -862,13 +870,6 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             return;
         }
 
-        if (!isEditingHallOfFame && !selectedHallOfFameImage) {
-            setHallOfFameMessage('Please select an image.');
-            return;
-        }
-
-
-
         try {
             let imagePath = currentHallOfFameEntry.event_image;
 
@@ -889,7 +890,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 event_venue: currentHallOfFameEntry.event_venue,
                 winner_name: currentHallOfFameEntry.winner_name,
                 achievement_type: currentHallOfFameEntry.achievement_type,
-                event_image: imagePath,
+                event_image: imagePath || '',
                 updated_at: new Date().toISOString()
             };
 
@@ -996,13 +997,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     };
 
     const handleUploadGalleryImage = async () => {
-        if (!selectedGalleryFile) {
-            setGalleryMessage('Please select a gallery image first.');
+        if (!selectedGalleryCategoryId) {
+            setGalleryMessage('Please select a category first.');
             return;
         }
 
-        if (!selectedGalleryCategoryId) {
-            setGalleryMessage('Please select a category first.');
+        if (!selectedGalleryFile) {
+            setGalleryMessage('Please select a gallery image first.');
             return;
         }
 
@@ -1959,21 +1960,19 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">Event Date</label>
                                                 <input
-                                                    type="text"
+                                                    type="date"
                                                     className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
-                                                    value={currentUpcomingEvent.event_date}
+                                                    value={normalizeUpcomingEventDateValue(currentUpcomingEvent.event_date)}
                                                     onChange={e => setCurrentUpcomingEvent({ ...currentUpcomingEvent, event_date: e.target.value })}
-                                                    placeholder="e.g. December 15, 2025"
                                                 />
                                             </div>
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">Event Time</label>
                                                 <input
-                                                    type="text"
+                                                    type="time"
                                                     className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
-                                                    value={currentUpcomingEvent.event_time}
+                                                    value={normalizeUpcomingEventTimeValue(currentUpcomingEvent.event_time)}
                                                     onChange={e => setCurrentUpcomingEvent({ ...currentUpcomingEvent, event_time: e.target.value })}
-                                                    placeholder="e.g. 9:00 AM"
                                                 />
                                             </div>
                                             <div>
@@ -2008,6 +2007,8 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                                     return;
                                                                 }
                                                                 setSelectedImage(file);
+                                                            } else {
+                                                                setSelectedImage(null);
                                                             }
                                                         }}
                                                     />
@@ -2055,8 +2056,8 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                 <div className="p-4">
                                                     <h4 className="font-bold text-lg text-gray-800 mb-2">{event.event_name}</h4>
                                                     <div className="space-y-1 text-sm text-gray-600 mb-4">
-                                                        <p>📅 {event.event_date}</p>
-                                                        <p>⏰ {event.event_time}</p>
+                                                        <p>📅 {formatUpcomingEventDateValue(event.event_date)}</p>
+                                                        <p>⏰ {formatUpcomingEventTimeValue(event.event_time)}</p>
                                                         <p>📍 {event.event_venue}</p>
                                                     </div>
                                                     <div className="flex justify-end gap-2">
@@ -2160,7 +2161,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                         className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                                                         onChange={e => {
                                                             const file = e.target.files?.[0];
-                                                            if (file) setSelectedHallOfFameImage(file);
+                                                            setSelectedHallOfFameImage(file || null);
                                                         }}
                                                     />
                                                 </div>
@@ -2261,25 +2262,25 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
                                     <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mb-8">
                                         <h4 className="text-lg font-bold text-gray-800 mb-4">Upload Gallery Image</h4>
-                                        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={(event) => setSelectedGalleryFile(event.target.files?.[0] || null)}
-                                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                                            />
+                                        <div className="flex flex-wrap items-center justify-start gap-4">
                                             <select
                                                 value={selectedGalleryCategoryId}
                                                 onChange={(event) => setSelectedGalleryCategoryId(event.target.value)}
-                                                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none sm:w-[220px]"
                                             >
                                                 <option value="">Select category</option>
                                                 {galleryCategories.map((category) => (
                                                     <option key={category.id} value={category.id}>
                                                         {formatGalleryCategoryLabel(category.name)}
-                                                    </option>
-                                                ))}
+                                                </option>
+                                            ))}
                                             </select>
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={(event) => setSelectedGalleryFile(event.target.files?.[0] || null)}
+                                                className="block w-full text-sm text-gray-500 sm:w-auto sm:max-w-[320px] file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                            />
                                             <button
                                                 onClick={handleUploadGalleryImage}
                                                 disabled={isGalleryUploading || !selectedGalleryFile || !selectedGalleryCategoryId}

@@ -1,4 +1,4 @@
-import { Facebook, X, Instagram, Youtube, Linkedin, Mail, Phone, MapPin } from 'lucide-react';
+import { Facebook, X, Instagram, Youtube, Linkedin, Mail, MapPin } from 'lucide-react';
 import cescLogo from '../assets/logo/logo-cesc-new - Copy.png';
 import clubLogo from '../assets/logo/CESC Sports club logo.jpg';
 import rpsgLogo from '../assets/logo/RPSG Logo.png';
@@ -20,7 +20,7 @@ export default function Footer({ onNavigate }: FooterProps) {
                 <img src={clubLogo} alt="Sports Club" className="h-16 w-auto object-contain rounded-full mix-blend-multiply shrink-0" />
               </div>
               <p className="text-gray-600 text-sm">
-                Building champions and fostering sporting excellence since 1995.
+                A legacy of sporting excellence since 1988.
               </p>
             </div>
 
@@ -48,11 +48,7 @@ export default function Footer({ onNavigate }: FooterProps) {
               <ul className="space-y-2 text-sm text-gray-600">
                 <li className="flex items-center">
                   <Mail size={16} className="mr-2" />
-                  <a href="mailto:cesclimited@rpsg.in" className="hover:text-blue-600 transition-colors">cesclimited@rpsg.in</a>
-                </li>
-                <li className="flex items-center">
-                  <Phone size={16} className="mr-2" />
-                  <a href="tel:033-22256040" className="hover:text-blue-600 transition-colors">033-22256040–49</a>
+                  <a href="mailto:cescosc_communication@rpsg.in" className="hover:text-blue-600 transition-colors">cescosc_communication@rpsg.in</a>
                 </li>
                 <li className="flex items-start">
                   <MapPin size={16} className="mr-2 mt-1 shrink-0" />
@@ -60,7 +56,7 @@ export default function Footer({ onNavigate }: FooterProps) {
                     <span className="font-semibold text-gray-800">Head Office</span>
                     <span>CESC House</span>
                     <span>Chowringhee Square</span>
-                    <span>Kolkata – 700001</span>
+                    <span>Kolkata - 700001</span>
                   </div>
                 </li>
               </ul>
@@ -70,7 +66,7 @@ export default function Footer({ onNavigate }: FooterProps) {
           <div className="border-t border-gray-200/50 pt-8 flex flex-col md:flex-row items-center justify-between">
             <div className="flex items-center gap-4 mb-4 md:mb-0">
               <p className="text-sm text-gray-600">
-                © 2025 CESC Officers' Sports Club.
+                Copyright 2025 CESC Officers' Sports Club.
               </p>
               <button
                 onClick={() => onNavigate?.('admin-login')}
