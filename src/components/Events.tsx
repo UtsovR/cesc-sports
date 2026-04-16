@@ -1,6 +1,10 @@
 import { Calendar, MapPin, Clock } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import {
+  formatUpcomingEventDateValue,
+  formatUpcomingEventTimeValue
+} from '../lib/upcomingEventDateTime';
 
 interface UpcomingEvent {
   id: number;
@@ -8,8 +12,9 @@ interface UpcomingEvent {
   event_date: string;
   event_time: string;
   event_venue: string;
-  event_image: string;
+  event_image: string | null;
 }
+const EMPTY_IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
 export default function Events() {
   const [events, setEvents] = useState<UpcomingEvent[]>([]);
@@ -33,7 +38,10 @@ export default function Events() {
     fetchEvents();
   }, []);
 
-  const getImageUrl = (imagePath: string) => {
+  const getImageUrl = (imagePath?: string | null) => {
+    if (!imagePath) {
+      return EMPTY_IMAGE_PLACEHOLDER;
+    }
     if (imagePath.startsWith('http') || imagePath.startsWith('https')) {
       return imagePath;
     }
@@ -45,7 +53,7 @@ export default function Events() {
       {/* Quote Section */}
       <div className="text-center mb-16">
         <blockquote className="text-2xl md:text-3xl font-light italic text-gray-600">
-          "Where preparation meets passion, great events are born."
+          "Where tradition, preparation, and passion come together, memorable sporting moments begin."
         </blockquote>
         <div className="h-1 w-24 bg-gradient-to-r from-blue-600 to-cyan-500 mx-auto mt-6 rounded-full"></div>
       </div>
@@ -84,11 +92,11 @@ export default function Events() {
                 <div className="space-y-3 mb-2">
                   <div className="flex items-center text-gray-600">
                     <Calendar size={18} className="mr-3 text-blue-500" />
-                    <span className="text-sm font-medium">{event.event_date}</span>
+                    <span className="text-sm font-medium">{formatUpcomingEventDateValue(event.event_date)}</span>
                   </div>
                   <div className="flex items-center text-gray-600">
                     <Clock size={18} className="mr-3 text-cyan-500" />
-                    <span className="text-sm font-medium">{event.event_time}</span>
+                    <span className="text-sm font-medium">{formatUpcomingEventTimeValue(event.event_time)}</span>
                   </div>
                   <div className="flex items-center text-gray-600">
                     <MapPin size={18} className="mr-3 text-red-500" />

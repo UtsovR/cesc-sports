@@ -141,7 +141,7 @@ export default function Gallery() {
           <div className="max-w-2xl">
             <div className="h-1 w-20 bg-gradient-to-r from-blue-600 to-cyan-500 mb-6 rounded-full"></div>
             <blockquote className="text-2xl md:text-3xl font-light text-gray-700 italic leading-relaxed">
-              "Every frame tells a story of <span className="font-semibold text-blue-600">passion</span>, <span className="font-semibold text-blue-600">teamwork</span>, and sporting <span className="font-semibold text-blue-600">excellence</span>."
+              "Every frame reflects a sporting journey shaped by <span className="font-semibold text-blue-600">passion</span>, <span className="font-semibold text-blue-600">teamwork</span>, and a proud legacy of <span className="font-semibold text-blue-600">excellence since 1995</span>."
             </blockquote>
           </div>
 
@@ -161,7 +161,7 @@ export default function Gallery() {
             <div>
               <h2 className="text-3xl font-bold text-gray-800">Moments from CESC Officers&apos; Sports Club</h2>
               <p className="mt-2 text-sm text-gray-500">
-                Admin-managed highlights appear here before the category folders.
+                Highlights from a sporting community that has continued to grow, compete, and celebrate together since 1995.
               </p>
             </div>
           </div>
@@ -193,7 +193,7 @@ export default function Gallery() {
             <div className="mb-6">
               <h2 className="text-2xl font-bold text-gray-800">Gallery Folders</h2>
               <p className="mt-2 text-sm text-gray-500">
-                Choose a sport or workshop folder to open its gallery.
+                Explore the moments, milestones, and memories that define the club's sporting legacy.
               </p>
             </div>
 

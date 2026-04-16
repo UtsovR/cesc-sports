@@ -110,11 +110,11 @@ export default function Feedback() {
                         We Value Your Feedback
                     </h1>
                     <p className="text-gray-600 text-lg">
-                        Help us improve your sports club experience.
+                        Your insights help us strengthen the club experience for a growing sporting community.
                     </p>
                     <div className="mt-4 inline-block bg-blue-50 border border-blue-100 rounded-xl px-4 py-2">
                         <p className="text-blue-700 text-sm font-medium">
-                            Personal details are not mandatory. Discrete feedbacks are also appreciated.
+                            Personal details are optional, and discreet feedback is always welcome.
                         </p>
                     </div>
                 </div>
@@ -125,7 +125,7 @@ export default function Feedback() {
                             <Sparkles className="w-10 h-10 text-green-500" />
                         </div>
                         <h3 className="text-2xl font-bold text-gray-800 mb-2">Thank You!</h3>
-                        <p className="text-gray-600">Your feedback has been successfully submitted.</p>
+                        <p className="text-gray-600">Your feedback has been received and will help us improve the club experience.</p>
                         <button
                             onClick={() => setStatus('idle')}
                             className="mt-8 px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors"

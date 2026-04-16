@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import clubLogo from '../assets/logo/CESC Sports club logo.jpg';
+import heroLogo from '../../logo/logo_main.png';
 import badmintonImg from '../assets/hero_slides/Badminton.JPG';
 import cricketImg from '../assets/hero_slides/Cricket.JPG';
 import footballImg from '../assets/hero_slides/Football.jpg';
@@ -10,39 +10,39 @@ import fitnessImg from '../assets/hero_slides/FITNESS_WORKSHOP.jpg';
 
 const slides = [
   {
-    logo: clubLogo,
-    title: 'Excellence in Sports',
-    subtitle: 'Building Champions, Creating Legends',
+    logo: heroLogo,
+    title: 'Building champions and fostering sporting excellence since 1995.',
+    subtitle: 'For decades, the club has empowered employees and families through competitive spirit, teamwork, and a culture of sporting excellence.',
     image: 'https://images.pexels.com/photos/3621788/pexels-photo-3621788.jpeg?auto=compress&cs=tinysrgb&w=1920'
   },
   {
     title: 'Tennis',
-    subtitle: 'Ace Your Game',
+    subtitle: 'Precision, discipline, and composure.',
     image: tennisImg
   },
   {
     title: 'Badminton',
-    subtitle: 'Agility and Speed',
+    subtitle: 'Speed, focus, and resilience.',
     image: badmintonImg
   },
   {
     title: 'Fitness Workshop',
-    subtitle: 'Healthy Body, Healthy Mind',
+    subtitle: 'Well-being through active living.',
     image: fitnessImg
   },
   {
     title: 'Football',
-    subtitle: 'Passion on the Field',
+    subtitle: 'Unity, strategy, and shared effort.',
     image: footballImg
   },
   {
     title: 'Table Tennis',
-    subtitle: 'Fast Paced Action',
+    subtitle: 'Reflexes, rhythm, and control.',
     image: ttImg
   },
   {
     title: 'Cricket',
-    subtitle: 'The Spirit of the Game',
+    subtitle: 'Tradition, teamwork, and competitive spirit.',
     image: cricketImg
   }
 ];
@@ -78,18 +78,15 @@ export default function Hero() {
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
 
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className={`text-center bg-white/1 rounded-3xl flex flex-col justify-center items-center border border-white/30 shadow-2xl transform transition-all duration-700 ${slide.logo ? 'w-[700px] h-[450px] backdrop-blur-[8px]' : 'w-[500px] h-[300px] backdrop-blur-[2px]'}`}>
+                <div className={`text-center bg-white/1 rounded-3xl flex flex-col justify-center items-center border border-white/30 shadow-2xl transform transition-all duration-700 ${slide.logo ? 'w-[700px] h-[450px] max-w-[90%] backdrop-blur-[8px]' : 'w-[500px] h-[300px] max-w-[90%] px-6 py-8 backdrop-blur-[2px]'}`}>
                   {slide.logo ? (
-                    <>
+                    <div className="flex h-full w-full items-center justify-center p-5 sm:p-7 md:p-9 lg:p-10">
                       <img
                         src={slide.logo}
                         alt="CESC Sports Club"
-                        className="w-96 h-auto mx-auto mb-6 object-contain"
+                        className="block h-auto w-auto max-h-full max-w-full object-contain"
                       />
-                      <h1 className="text-3xl font-bold text-white text-center leading-tight">
-                        CESC Officer's Sports Club
-                      </h1>
-                    </>
+                    </div>
                   ) : (
                     <>
                       <h1 className="text-4xl font-bold text-white mb-3 leading-tight">

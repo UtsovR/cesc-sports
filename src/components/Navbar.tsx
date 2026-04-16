@@ -1,8 +1,8 @@
 import { Menu, X } from 'lucide-react';
 import { useState } from 'react';
 import cescLogo from '../assets/logo/logo-cesc-new - Copy.png';
-import clubLogo from '../assets/logo/CESC Sports club logo.jpg';
-import rpsgLogo from '../assets/logo/RPSG Logo.png';
+import heroLogo from '../../logo/logo_main.png';
+import rpsgLogo from '../../logo/RPSG_Logo_main.png';
 
 interface NavbarProps {
   currentPage: string;
@@ -18,9 +18,7 @@ export default function Navbar({ currentPage, onNavigate }: NavbarProps) {
     { id: 'vision', label: 'Vision & Mission' },
     { id: 'gallery', label: 'Gallery' },
     { id: 'calendar', label: 'Calendar' },
-    { id: 'register', label: 'Register' },
     { id: 'committee', label: 'Executive Committee' },
-    { id: 'feedback', label: 'Feedback' },
   ];
 
   return (
@@ -29,21 +27,27 @@ export default function Navbar({ currentPage, onNavigate }: NavbarProps) {
         <div className="rounded-[28px] border border-white/50 bg-white/30 px-5 py-3 shadow-lg backdrop-blur-xl sm:px-7 lg:px-8">
           <div className="flex items-center justify-between gap-5 lg:gap-10">
             <div className="flex min-w-0 items-center gap-3 sm:gap-4 lg:gap-5 lg:pr-4">
-              <img
-                src={rpsgLogo}
-                alt="RPSG"
-                className="h-10 w-auto shrink-0 object-contain sm:h-11"
-              />
-              <img
-                src={cescLogo}
-                alt="CESC"
-                className="h-10 w-auto shrink-0 object-contain sm:h-11"
-              />
-              <img
-                src={clubLogo}
-                alt="Sports Club"
-                className="h-14 w-auto shrink-0 rounded-full object-contain mix-blend-multiply sm:h-16"
-              />
+              <div className="flex h-12 items-center justify-center sm:h-[52px]">
+                <img
+                  src={rpsgLogo}
+                  alt="RPSG"
+                  className="h-[54px] w-auto shrink-0 object-contain sm:h-[64px] lg:h-[68px]"
+                />
+              </div>
+              <div className="flex h-12 items-center justify-center sm:h-[52px]">
+                <img
+                  src={cescLogo}
+                  alt="CESC"
+                  className="h-[90%] w-auto shrink-0 object-contain"
+                />
+              </div>
+              <div className="flex h-12 items-center justify-center sm:h-[52px]">
+                <img
+                  src={heroLogo}
+                  alt="Sports Club"
+                  className="h-[92%] w-auto shrink-0 object-contain sm:h-[94%]"
+                />
+              </div>
             </div>
 
             <div className="hidden flex-1 items-center justify-end gap-1.5 md:flex lg:gap-2 xl:gap-2.5">
