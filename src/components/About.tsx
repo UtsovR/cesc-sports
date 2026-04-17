@@ -63,7 +63,7 @@ export default function About() {
                                 Over the decades, the club has expanded to include Cricket, Football, Table Tennis, Badminton, fitness workshops, and other activities that encourage active living, friendly competition, and collective pride. The club continues to create opportunities for employees and families to come together, stay engaged, and celebrate the spirit of sport.
                             </p>
                             <p>
-                                Since 1995, CESC Officers' Sports Club has carried forward a visible legacy of sporting excellence by nurturing talent, strengthening community bonds, and inspiring members to pursue their best on and off the field. The club remains committed to building a culture where participation, teamwork, and achievement continue to thrive.
+                                Since 1988, CESC Officers' Sports Club has carried forward a visible legacy of sporting excellence by nurturing talent, strengthening community bonds, and inspiring members to pursue their best on and off the field. The club remains committed to building a culture where participation, teamwork, and achievement continue to thrive.
                             </p>
                         </div>
                     </div>

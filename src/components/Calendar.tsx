@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import BackButton from './BackButton';
 import { supabase } from '../lib/supabase';
 import { normalizeCalendarEvent } from '../lib/calendarEventTime';
+import { DEFAULT_CALENDAR_FY_LABEL, normalizeCalendarFyLabel } from '../lib/calendarSettings';
 
 interface CalendarEvent {
     id: number;
@@ -70,26 +71,44 @@ const INITIAL_EVENTS: CalendarEvent[] = [
 
 export default function Calendar() {
     const [events, setEvents] = useState<CalendarEvent[]>([]);
+    const [fyLabel, setFyLabel] = useState(DEFAULT_CALENDAR_FY_LABEL);
     const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
-        const fetchEvents = async () => {
-            const { data, error } = await supabase
-                .from('calendar_events')
-                .select('*')
-                .order('event_date', { ascending: true });
+        const fetchCalendarData = async () => {
+            const [
+                { data: eventData, error: eventsError },
+                { data: settingsData, error: settingsError }
+            ] = await Promise.all([
+                supabase
+                    .from('calendar_events')
+                    .select('*')
+                    .order('event_date', { ascending: true }),
+                supabase
+                    .from('calendar_settings')
+                    .select('fy_label')
+                    .eq('id', 1)
+                    .maybeSingle()
+            ]);
 
-            if (error) {
-                console.error('Failed to load events', error);
+            if (eventsError) {
+                console.error('Failed to load events', eventsError);
                 setEvents(INITIAL_EVENTS);
             } else {
                 // Merge static events with database events
-                const dbEvents = (data || []).map((event) => normalizeCalendarEvent(event as CalendarEvent));
+                const dbEvents = (eventData || []).map((event) => normalizeCalendarEvent(event as CalendarEvent));
                 setEvents([...INITIAL_EVENTS, ...dbEvents]);
+            }
+
+            if (settingsError) {
+                console.error('Failed to load calendar settings', settingsError);
+                setFyLabel(DEFAULT_CALENDAR_FY_LABEL);
+            } else {
+                setFyLabel(normalizeCalendarFyLabel(settingsData?.fy_label));
             }
         };
 
-        fetchEvents();
+        void fetchCalendarData();
     }, []);
 
     // Helper to format date
@@ -122,7 +141,7 @@ export default function Calendar() {
                     <div>
                         <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-400 bg-clip-text text-transparent flex items-center gap-4">
                             <CalendarIcon className="w-10 h-10 text-cyan-400" />
-                            Event Calendar <span className="text-2xl text-cyan-200/80 font-light">FY 25-26</span>
+                            Event Calendar <span className="text-2xl text-cyan-200/80 font-light">{fyLabel}</span>
                         </h1>
                         <p className="text-blue-200/80 mt-2 text-lg">Upcoming Sports & Activities</p>
                     </div>

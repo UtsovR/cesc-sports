@@ -141,7 +141,7 @@ export default function Registration() {
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent mb-2">
                     Event Registration
                 </h1>
-                <p className="text-gray-600 mb-8">Join a proud sporting tradition built on participation, teamwork, and excellence since 1995.</p>
+                <p className="text-gray-600 mb-8">Join a proud sporting tradition built on participation, teamwork, and excellence since 1988.</p>
 
                 {status === 'success' ? (
                     <div className="bg-green-100 border border-green-200 text-green-800 rounded-xl p-6 flex flex-col items-center text-center">

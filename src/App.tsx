@@ -243,7 +243,7 @@ function App() {
                 <h2 className="text-3xl font-bold text-gray-800">Moments from CESC Officers' Sports Club</h2>
                 <div className="h-1 w-20 bg-blue-600 mt-2"></div>
                 <p className="mt-3 max-w-2xl text-sm text-gray-500">
-                  A legacy of sporting excellence since 1995, reflected through every tournament, team, and shared celebration.
+                  A legacy of sporting excellence since 1988, reflected through every tournament, team, and shared celebration.
                 </p>
               </div>
               <button

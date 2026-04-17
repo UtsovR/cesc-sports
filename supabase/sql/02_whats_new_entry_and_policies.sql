@@ -82,6 +82,33 @@ $$;
 
 do $$
 begin
+    if to_regclass('public.calendar_settings') is not null then
+        alter table public.calendar_settings enable row level security;
+
+        drop policy if exists "Public Read for Calendar Settings" on public.calendar_settings;
+        drop policy if exists "Allow all to read calendar_settings" on public.calendar_settings;
+        drop policy if exists "Public can view calendar settings" on public.calendar_settings;
+        drop policy if exists "Allow authenticated to manage calendar_settings" on public.calendar_settings;
+        drop policy if exists "Authenticated users can manage calendar settings" on public.calendar_settings;
+
+        create policy "Public can view calendar settings"
+            on public.calendar_settings
+            for select
+            to public
+            using (true);
+
+        create policy "Authenticated users can manage calendar settings"
+            on public.calendar_settings
+            for all
+            to authenticated
+            using (auth.role() = 'authenticated')
+            with check (auth.role() = 'authenticated');
+    end if;
+end
+$$;
+
+do $$
+begin
     if to_regclass('public.whats_new') is not null then
         alter table public.whats_new enable row level security;
 
@@ -201,6 +228,30 @@ begin
 
         create policy "Authenticated users can manage gallery categories"
             on public.gallery_categories
+            for all
+            to authenticated
+            using (auth.role() = 'authenticated')
+            with check (auth.role() = 'authenticated');
+    end if;
+end
+$$;
+
+do $$
+begin
+    if to_regclass('public.gallery_folders') is not null then
+        alter table public.gallery_folders enable row level security;
+
+        drop policy if exists "Public can view gallery folders" on public.gallery_folders;
+        drop policy if exists "Authenticated users can manage gallery folders" on public.gallery_folders;
+
+        create policy "Public can view gallery folders"
+            on public.gallery_folders
+            for select
+            to public
+            using (true);
+
+        create policy "Authenticated users can manage gallery folders"
+            on public.gallery_folders
             for all
             to authenticated
             using (auth.role() = 'authenticated')

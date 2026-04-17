@@ -1,12 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { LogOut, Users, MessageSquare, Search } from 'lucide-react';
 import BackButton from './BackButton';
+import GalleryFolderTree from './admin/GalleryFolderTree';
 import { supabase } from '../lib/supabase';
+import {
+    buildGalleryFolderOptions,
+    buildGalleryFolderPathMap,
+    hasDuplicateGalleryFolderName,
+    normalizeGalleryFolderName,
+    type GalleryFolder
+} from '../lib/galleryFolders';
 import {
     buildCalendarFallbackUpdatedAt,
     isCalendarEventTimeColumnMissingError,
     normalizeCalendarEvent
 } from '../lib/calendarEventTime';
+import { DEFAULT_CALENDAR_FY_LABEL, normalizeCalendarFyLabel } from '../lib/calendarSettings';
 import {
     formatUpcomingEventDateValue,
     formatUpcomingEventTimeValue,
@@ -143,6 +152,7 @@ interface GalleryImage {
     id: number;
     image_url: string;
     category_id: number;
+    folder_id: number | null;
     uploaded_at?: string;
 }
 
@@ -183,6 +193,16 @@ const DEFAULT_HALL_OF_FAME_ENTRY: HallOfFameEntry = {
 const EMPTY_IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
 const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unknown error';
+const GALLERY_ALLOWED_FILE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png']);
+
+const isAllowedGalleryUploadFile = (file: File) => {
+    const normalizedMimeType = file.type.toLowerCase();
+    const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
+
+    return normalizedMimeType === 'image/jpeg'
+        || normalizedMimeType === 'image/png'
+        || GALLERY_ALLOWED_FILE_EXTENSIONS.has(fileExtension);
+};
 
 const formatSportsInterested = (sports: string | string[]) => {
     if (Array.isArray(sports)) {
@@ -286,6 +306,9 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     // Calendar Form State
     const [isEditingEvent, setIsEditingEvent] = useState(false);
     const [currentEvent, setCurrentEvent] = useState<CalendarEvent>(DEFAULT_EVENT);
+    const [calendarFyLabel, setCalendarFyLabel] = useState(DEFAULT_CALENDAR_FY_LABEL);
+    const [calendarSettingsMessage, setCalendarSettingsMessage] = useState('');
+    const [isSavingCalendarSettings, setIsSavingCalendarSettings] = useState(false);
     const [eventFormMessage, setEventFormMessage] = useState('');
 
     // What's New State
@@ -308,13 +331,19 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
     // CMS States
     const [galleryCategories, setGalleryCategories] = useState<GalleryCategory[]>([]);
+    const [galleryFolders, setGalleryFolders] = useState<GalleryFolder[]>([]);
     const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
     const [galleryMessage, setGalleryMessage] = useState('');
     const [galleryError, setGalleryError] = useState('');
     const [galleryManagerLoading, setGalleryManagerLoading] = useState(false);
-    const [selectedGalleryFile, setSelectedGalleryFile] = useState<File | null>(null);
+    const [selectedGalleryFiles, setSelectedGalleryFiles] = useState<File[]>([]);
     const [selectedGalleryCategoryId, setSelectedGalleryCategoryId] = useState('');
+    const [selectedGalleryUploadFolderId, setSelectedGalleryUploadFolderId] = useState('');
+    const [selectedGalleryFolderCategoryId, setSelectedGalleryFolderCategoryId] = useState('');
+    const [newGalleryFolderName, setNewGalleryFolderName] = useState('');
     const [isGalleryUploading, setIsGalleryUploading] = useState(false);
+    const [isGalleryFolderSaving, setIsGalleryFolderSaving] = useState(false);
+    const galleryFileInputRef = useRef<HTMLInputElement | null>(null);
     const [preGalleryImages, setPreGalleryImages] = useState<PreGalleryImage[]>([]);
     const [preGalleryMessage, setPreGalleryMessage] = useState('');
     const [preGalleryError, setPreGalleryError] = useState('');
@@ -342,17 +371,19 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 supabase.from('registrations').select('*').order('created_at', { ascending: false }),
                 supabase.from('feedbacks').select('*').order('submitted_at', { ascending: false }),
                 supabase.from('calendar_events').select('*').order('event_date', { ascending: true }),
+                supabase.from('calendar_settings').select('id, fy_label, updated_at').eq('id', 1).maybeSingle(),
                 supabase.from('whats_new').select('*').order('updated_at', { ascending: false }),
                 supabase.from('upcoming_events').select('*').order('created_at', { ascending: false }),
                 supabase.from('hall_of_fame').select('*').order('event_date', { ascending: false }),
                 supabase.from('gallery_categories').select('*'),
+                supabase.from('gallery_folders').select('*').order('created_at', { ascending: true }),
                 supabase.from('gallery_images').select('*').order('uploaded_at', { ascending: false }),
                 supabase.from('pregallery_images').select('*').order('display_order', { ascending: true }),
                 supabase.from('about_images').select('*').order('created_at', { ascending: false }),
                 supabase.from('vision_images').select('*').order('created_at', { ascending: false })
             ]);
 
-            const [regs, fbs, cal, wn, up, hf, gc, gi, pgi, ai, vi] = results;
+            const [regs, fbs, cal, cs, wn, up, hf, gc, gf, gi, pgi, ai, vi] = results;
 
             if (regs.error) {
                 setRegistrationsError(`Failed to load registrations: ${regs.error.message}`);
@@ -372,14 +403,18 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 setCalendarError('');
             }
 
+            if (cs.error) {
+                console.error('Failed to load calendar settings', cs.error);
+            }
+
             if (pgi.error) {
                 setPreGalleryError(`Failed to load pre-gallery images: ${pgi.error.message}`);
             } else {
                 setPreGalleryError('');
             }
 
-            if (gc.error || gi.error) {
-                setGalleryError(`Failed to load gallery manager data: ${gc.error?.message || gi.error?.message}`);
+            if (gc.error || gf.error || gi.error) {
+                setGalleryError(`Failed to load gallery manager data: ${gc.error?.message || gf.error?.message || gi.error?.message}`);
             } else {
                 setGalleryError('');
             }
@@ -390,10 +425,12 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 ...INITIAL_EVENTS,
                 ...((cal.data || []).map((event) => normalizeCalendarEvent(event as CalendarEvent)))
             ]);
+            setCalendarFyLabel(normalizeCalendarFyLabel(cs.data?.fy_label));
             setWhatsNewItems(wn.data || []);
             setUpcomingEvents(up.data || []);
             setHallOfFameEntries(hf.data || []);
             setGalleryCategories(sortGalleryCategories((gc.data || []) as GalleryCategory[]));
+            setGalleryFolders((gf.data || []) as GalleryFolder[]);
             setGalleryImages((gi.data || []) as GalleryImage[]);
             setPreGalleryImages((pgi.data || []) as PreGalleryImage[]);
             setAboutImages(ai.data || []);
@@ -414,6 +451,36 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     useEffect(() => {
         void fetchData();
     }, [fetchData]);
+
+    useEffect(() => {
+        if (galleryCategories.length === 0) {
+            if (selectedGalleryFolderCategoryId) {
+                setSelectedGalleryFolderCategoryId('');
+            }
+            return;
+        }
+
+        if (!selectedGalleryFolderCategoryId || !galleryCategories.some((category) => category.id === Number(selectedGalleryFolderCategoryId))) {
+            setSelectedGalleryFolderCategoryId(String(galleryCategories[0].id));
+        }
+    }, [galleryCategories, selectedGalleryFolderCategoryId]);
+
+    useEffect(() => {
+        if (!selectedGalleryUploadFolderId) {
+            return;
+        }
+
+        const selectedUploadCategoryId = Number(selectedGalleryCategoryId);
+        const selectedUploadFolderId = Number(selectedGalleryUploadFolderId);
+        const hasValidFolderSelection = galleryFolders.some((folder) => (
+            folder.id === selectedUploadFolderId
+            && folder.category_id === selectedUploadCategoryId
+        ));
+
+        if (!hasValidFolderSelection) {
+            setSelectedGalleryUploadFolderId('');
+        }
+    }, [galleryFolders, selectedGalleryCategoryId, selectedGalleryUploadFolderId]);
 
     const fetchWhatsNew = async () => {
         try {
@@ -542,6 +609,39 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         } catch (error) {
             console.error('Failed to refresh calendar', error);
             setCalendarError('Failed to load calendar events.');
+        }
+    };
+
+    const handleSaveCalendarSettings = async () => {
+        const trimmedFyLabel = calendarFyLabel.trim();
+
+        if (!trimmedFyLabel) {
+            setCalendarSettingsMessage('Error: Financial year is required.');
+            return;
+        }
+
+        setIsSavingCalendarSettings(true);
+
+        try {
+            const { error } = await supabase
+                .from('calendar_settings')
+                .upsert(
+                    { id: 1, fy_label: trimmedFyLabel },
+                    { onConflict: 'id' }
+                );
+
+            if (error) {
+                setCalendarSettingsMessage(`Error: ${error.message}`);
+                return;
+            }
+
+            setCalendarFyLabel(trimmedFyLabel);
+            setCalendarSettingsMessage('Financial year updated!');
+            setTimeout(() => setCalendarSettingsMessage(''), 3000);
+        } catch (error) {
+            setCalendarSettingsMessage(`Error: ${getErrorMessage(error)}`);
+        } finally {
+            setIsSavingCalendarSettings(false);
         }
     };
 
@@ -970,17 +1070,19 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         setGalleryManagerLoading(true);
 
         try {
-            const [categoriesResponse, imagesResponse] = await Promise.all([
+            const [categoriesResponse, foldersResponse, imagesResponse] = await Promise.all([
                 supabase.from('gallery_categories').select('*'),
+                supabase.from('gallery_folders').select('*').order('created_at', { ascending: true }),
                 supabase.from('gallery_images').select('*').order('uploaded_at', { ascending: false })
             ]);
 
-            if (categoriesResponse.error || imagesResponse.error) {
-                setGalleryError(`Failed to load gallery manager data: ${categoriesResponse.error?.message || imagesResponse.error?.message}`);
+            if (categoriesResponse.error || foldersResponse.error || imagesResponse.error) {
+                setGalleryError(`Failed to load gallery manager data: ${categoriesResponse.error?.message || foldersResponse.error?.message || imagesResponse.error?.message}`);
                 return;
             }
 
             setGalleryCategories(sortGalleryCategories((categoriesResponse.data || []) as GalleryCategory[]));
+            setGalleryFolders((foldersResponse.data || []) as GalleryFolder[]);
             setGalleryImages((imagesResponse.data || []) as GalleryImage[]);
             setGalleryError('');
         } catch (error) {
@@ -996,48 +1098,266 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         setVisionImages(data || []);
     };
 
-    const handleUploadGalleryImage = async () => {
-        if (!selectedGalleryCategoryId) {
-            setGalleryMessage('Please select a category first.');
+    const saveGalleryFolder = async ({
+        name,
+        categoryId,
+        parentFolderId,
+        folderId
+    }: {
+        name: string;
+        categoryId: number;
+        parentFolderId: number | null;
+        folderId?: number;
+    }) => {
+        const normalizedFolderName = normalizeGalleryFolderName(name);
+
+        if (!normalizedFolderName) {
+            setGalleryMessage('Folder name cannot be empty.');
+            return false;
+        }
+
+        if (hasDuplicateGalleryFolderName(galleryFolders, {
+            name: normalizedFolderName,
+            categoryId,
+            parentFolderId,
+            excludeFolderId: folderId
+        })) {
+            setGalleryMessage('A folder with that name already exists in this location.');
+            return false;
+        }
+
+        setIsGalleryFolderSaving(true);
+
+        try {
+            const folderPayload = {
+                name: normalizedFolderName,
+                category_id: categoryId,
+                parent_folder_id: parentFolderId
+            };
+            const { error } = folderId
+                ? await supabase
+                    .from('gallery_folders')
+                    .update(folderPayload)
+                    .eq('id', folderId)
+                : await supabase
+                    .from('gallery_folders')
+                    .insert([folderPayload]);
+
+            if (error) {
+                throw error;
+            }
+
+            setGalleryError('');
+            setGalleryMessage(folderId
+                ? 'Folder renamed successfully!'
+                : parentFolderId
+                    ? 'Sub-folder created successfully!'
+                    : 'Folder created successfully!');
+            void fetchGalleryManagerData();
+            setTimeout(() => setGalleryMessage(''), 3000);
+            return true;
+        } catch (error) {
+            console.error('Gallery folder save error:', error);
+            setGalleryMessage(`Folder save failed: ${getErrorMessage(error)}`);
+            return false;
+        } finally {
+            setIsGalleryFolderSaving(false);
+        }
+    };
+
+    const handleCreateGalleryFolder = async () => {
+        if (!selectedGalleryFolderCategoryId) {
+            setGalleryMessage('Please select a category before creating a folder.');
             return;
         }
 
-        if (!selectedGalleryFile) {
-            setGalleryMessage('Please select a gallery image first.');
+        const created = await saveGalleryFolder({
+            name: newGalleryFolderName,
+            categoryId: Number(selectedGalleryFolderCategoryId),
+            parentFolderId: null
+        });
+
+        if (created) {
+            setNewGalleryFolderName('');
+        }
+    };
+
+    const handleAddGallerySubFolder = async (parentFolder: GalleryFolder) => {
+        const folderName = window.prompt(`Enter a sub-folder name for "${parentFolder.name}"`, '');
+
+        if (folderName === null) {
+            return;
+        }
+
+        await saveGalleryFolder({
+            name: folderName,
+            categoryId: parentFolder.category_id,
+            parentFolderId: parentFolder.id
+        });
+    };
+
+    const handleRenameGalleryFolder = async (folder: GalleryFolder) => {
+        const nextFolderName = window.prompt('Rename folder', folder.name);
+
+        if (nextFolderName === null) {
+            return;
+        }
+
+        const normalizedNextFolderName = normalizeGalleryFolderName(nextFolderName);
+
+        if (normalizedNextFolderName === folder.name) {
+            return;
+        }
+
+        await saveGalleryFolder({
+            folderId: folder.id,
+            name: normalizedNextFolderName,
+            categoryId: folder.category_id,
+            parentFolderId: folder.parent_folder_id
+        });
+    };
+
+    const handleDeleteGalleryFolder = async (folder: GalleryFolder) => {
+        if (!confirm(`Delete "${folder.name}"? Empty folders only can be removed.`)) {
+            return;
+        }
+
+        setIsGalleryFolderSaving(true);
+
+        try {
+            const { error } = await supabase
+                .from('gallery_folders')
+                .delete()
+                .eq('id', folder.id);
+
+            if (error) {
+                throw error;
+            }
+
+            if (selectedGalleryUploadFolderId === String(folder.id)) {
+                setSelectedGalleryUploadFolderId('');
+            }
+
+            setGalleryMessage('Folder deleted successfully!');
+            void fetchGalleryManagerData();
+            setTimeout(() => setGalleryMessage(''), 3000);
+        } catch (error) {
+            console.error('Gallery folder delete error:', error);
+            setGalleryMessage(`Delete failed: ${getErrorMessage(error)}`);
+        } finally {
+            setIsGalleryFolderSaving(false);
+        }
+    };
+
+    const handleGalleryFileSelection = (event: ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files || []);
+
+        if (files.length === 0) {
+            setSelectedGalleryFiles([]);
+            return;
+        }
+
+        if (files.some((file) => !isAllowedGalleryUploadFile(file))) {
+            setSelectedGalleryFiles([]);
+            event.target.value = '';
+            setGalleryMessage('Upload failed: only JPG and PNG files are allowed.');
+            return;
+        }
+
+        setGalleryMessage('');
+        setSelectedGalleryFiles(files);
+    };
+
+    const handleUploadGalleryImage = async () => {
+        if (!selectedGalleryCategoryId) {
+            setGalleryMessage('Please select a category.');
+            return;
+        }
+
+        if (!selectedGalleryUploadFolderId) {
+            setGalleryMessage('Please select a folder.');
+            return;
+        }
+
+        if (selectedGalleryFiles.length === 0) {
+            setGalleryMessage('Please choose at least one image.');
+            return;
+        }
+
+        const selectedCategoryId = Number(selectedGalleryCategoryId);
+        const selectedFolderId = Number(selectedGalleryUploadFolderId);
+        const totalFiles = selectedGalleryFiles.length;
+
+        if (!galleryFolders.some((folder) => (
+            folder.id === selectedFolderId
+            && folder.category_id === selectedCategoryId
+        ))) {
+            setGalleryMessage('Please select a valid folder for the chosen category.');
             return;
         }
 
         setIsGalleryUploading(true);
-        setGalleryMessage('Uploading image...');
+        setGalleryMessage(`Uploading ${totalFiles} image${totalFiles === 1 ? '' : 's'}...`);
+
+        let uploadedCount = 0;
+        const failedFileNames: string[] = [];
 
         try {
-            const fileExt = selectedGalleryFile.name.split('.').pop();
-            const fileName = `gallery-${selectedGalleryCategoryId}-${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('gallery-images')
-                .upload(fileName, selectedGalleryFile);
+            for (const file of selectedGalleryFiles) {
+                try {
+                    const fileExt = file.name.split('.').pop()?.toLowerCase() || (file.type === 'image/png' ? 'png' : 'jpg');
+                    const fileName = `gallery-${selectedGalleryCategoryId}-${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+                    const { data: uploadData, error: uploadError } = await supabase.storage
+                        .from('gallery-images')
+                        .upload(fileName, file);
 
-            if (uploadError) throw uploadError;
+                    if (uploadError) throw uploadError;
 
-            const { data: publicUrlData } = supabase.storage.from('gallery-images').getPublicUrl(uploadData.path);
-            const publicUrl = publicUrlData.publicUrl;
+                    const { data: publicUrlData } = supabase.storage.from('gallery-images').getPublicUrl(uploadData.path);
+                    const publicUrl = publicUrlData.publicUrl;
 
-            const { error: dbError } = await supabase
-                .from('gallery_images')
-                .insert([{
-                    image_url: publicUrl,
-                    category_id: Number(selectedGalleryCategoryId),
-                    uploaded_at: new Date().toISOString()
-                }]);
+                    const { error: dbError } = await supabase
+                        .from('gallery_images')
+                        .insert([{
+                            image_url: publicUrl,
+                            category_id: selectedCategoryId,
+                            folder_id: selectedFolderId,
+                            uploaded_at: new Date().toISOString()
+                        }]);
 
-            if (dbError) throw dbError;
+                    if (dbError) throw dbError;
 
-            setSelectedGalleryFile(null);
-            setSelectedGalleryCategoryId('');
-            setGalleryError('');
-            setGalleryMessage('Gallery image uploaded successfully!');
-            void fetchGalleryManagerData();
-            setTimeout(() => setGalleryMessage(''), 3000);
+                    uploadedCount += 1;
+                } catch (error) {
+                    console.error(`Gallery upload error for ${file.name}:`, error);
+                    failedFileNames.push(file.name);
+                }
+            }
+
+            if (failedFileNames.length === 0) {
+                setSelectedGalleryFiles([]);
+                if (galleryFileInputRef.current) {
+                    galleryFileInputRef.current.value = '';
+                }
+                setSelectedGalleryCategoryId('');
+                setSelectedGalleryUploadFolderId('');
+                setGalleryError('');
+                setGalleryMessage(`${uploadedCount} gallery image${uploadedCount === 1 ? '' : 's'} uploaded successfully!`);
+                void fetchGalleryManagerData();
+                setTimeout(() => setGalleryMessage(''), 3000);
+            } else if (uploadedCount > 0) {
+                setSelectedGalleryFiles([]);
+                if (galleryFileInputRef.current) {
+                    galleryFileInputRef.current.value = '';
+                }
+                setSelectedGalleryCategoryId('');
+                setSelectedGalleryUploadFolderId('');
+                setGalleryError('');
+                setGalleryMessage(`${uploadedCount} of ${totalFiles} gallery images uploaded successfully; failed: ${failedFileNames.join(', ')}.`);
+                void fetchGalleryManagerData();
+            } else {
+                setGalleryMessage(`Upload failed: ${failedFileNames.join(', ')} could not be uploaded.`);
+            }
         } catch (error) {
             console.error('Gallery upload error:', error);
             setGalleryMessage(`Upload failed: ${getErrorMessage(error)}`);
@@ -1046,21 +1366,28 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         }
     };
 
-    const handleMoveGalleryImage = async (imageId: number, categoryId: number) => {
+    const handleMoveGalleryImage = async (imageId: number, categoryId: number, folderId: number | null) => {
         try {
             const { error } = await supabase
                 .from('gallery_images')
-                .update({ category_id: categoryId })
+                .update({
+                    category_id: categoryId,
+                    folder_id: folderId
+                })
                 .eq('id', imageId);
 
             if (error) throw error;
 
             setGalleryImages((currentImages) => currentImages.map((image) => (
                 image.id === imageId
-                    ? { ...image, category_id: categoryId }
+                    ? {
+                        ...image,
+                        category_id: categoryId,
+                        folder_id: folderId
+                    }
                     : image
             )));
-            setGalleryMessage('Gallery image moved successfully!');
+            setGalleryMessage('Gallery image location updated successfully!');
             setTimeout(() => setGalleryMessage(''), 3000);
         } catch (error) {
             console.error('Gallery move error:', error);
@@ -1289,10 +1616,37 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     const visibleGalleryCategories = galleryCategories.filter((category) =>
         !normalizedSearchTerm || formatGalleryCategoryLabel(category.name).toLowerCase().includes(normalizedSearchTerm)
     );
-    const galleryImagesByCategory = visibleGalleryCategories.map((category) => ({
-        category,
-        images: galleryImages.filter((image) => image.category_id === category.id)
-    }));
+    const galleryFolderPathMap = buildGalleryFolderPathMap(galleryFolders);
+    const galleryImageCountsByFolder = galleryImages.reduce<Record<number, number>>((counts, image) => {
+        if (image.folder_id != null) {
+            counts[image.folder_id] = (counts[image.folder_id] || 0) + 1;
+        }
+
+        return counts;
+    }, {});
+    const selectedGalleryFolderManagerCategoryId = selectedGalleryFolderCategoryId
+        ? Number(selectedGalleryFolderCategoryId)
+        : null;
+    const selectedGalleryFolderManagerFolders = selectedGalleryFolderManagerCategoryId
+        ? galleryFolders.filter((folder) => folder.category_id === selectedGalleryFolderManagerCategoryId)
+        : [];
+    const selectedGalleryUploadCategoryId = selectedGalleryCategoryId
+        ? Number(selectedGalleryCategoryId)
+        : null;
+    const selectedGalleryUploadFolderOptions = selectedGalleryUploadCategoryId
+        ? buildGalleryFolderOptions(galleryFolders.filter((folder) => folder.category_id === selectedGalleryUploadCategoryId))
+        : [];
+    const selectedGalleryUploadHasFolders = selectedGalleryUploadFolderOptions.length > 0;
+    const galleryImagesByCategory = visibleGalleryCategories.map((category) => {
+        const categoryFolders = galleryFolders.filter((folder) => folder.category_id === category.id);
+
+        return {
+            category,
+            folderCount: categoryFolders.length,
+            folderOptions: buildGalleryFolderOptions(categoryFolders),
+            images: galleryImages.filter((image) => image.category_id === category.id)
+        };
+    });
 
     const sortedEvents = [...calendarEvents].sort((a, b) => {
         const first = new Date(a.event_date);
@@ -1635,6 +1989,35 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                             {calendarError}
                                         </div>
                                     )}
+
+                                    <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mb-6">
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">Calendar Settings</h4>
+                                        <div className="flex flex-col md:flex-row md:items-end gap-4">
+                                            <div className="flex-1">
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Financial Year</label>
+                                                <input
+                                                    type="text"
+                                                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    value={calendarFyLabel}
+                                                    onChange={e => setCalendarFyLabel(e.target.value)}
+                                                    placeholder="FY 25-26"
+                                                />
+                                            </div>
+                                            <button
+                                                onClick={handleSaveCalendarSettings}
+                                                disabled={isSavingCalendarSettings}
+                                                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:cursor-not-allowed disabled:bg-blue-400"
+                                            >
+                                                {isSavingCalendarSettings ? 'Saving...' : 'Save FY'}
+                                            </button>
+                                        </div>
+
+                                        {calendarSettingsMessage && (
+                                            <p className={`mt-4 text-sm ${calendarSettingsMessage.includes('Error') ? 'text-red-500' : 'text-green-600'}`}>
+                                                {calendarSettingsMessage}
+                                            </p>
+                                        )}
+                                    </div>
 
                                     {/* Add/Edit Form */}
                                     <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mb-8">
@@ -2265,7 +2648,10 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                         <div className="flex flex-wrap items-center justify-start gap-4">
                                             <select
                                                 value={selectedGalleryCategoryId}
-                                                onChange={(event) => setSelectedGalleryCategoryId(event.target.value)}
+                                                onChange={(event) => {
+                                                    setSelectedGalleryCategoryId(event.target.value);
+                                                    setSelectedGalleryUploadFolderId('');
+                                                }}
                                                 className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none sm:w-[220px]"
                                             >
                                                 <option value="">Select category</option>
@@ -2275,19 +2661,95 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                 </option>
                                             ))}
                                             </select>
+                                            <select
+                                                value={selectedGalleryUploadFolderId}
+                                                onChange={(event) => setSelectedGalleryUploadFolderId(event.target.value)}
+                                                disabled={!selectedGalleryCategoryId || !selectedGalleryUploadHasFolders}
+                                                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 sm:w-[260px]"
+                                            >
+                                                <option value="">{selectedGalleryCategoryId ? 'Select folder' : 'Select category first'}</option>
+                                                {selectedGalleryUploadFolderOptions.map((folder) => (
+                                                    <option key={folder.id} value={folder.id}>
+                                                        {folder.pathLabel}
+                                                    </option>
+                                                ))}
+                                            </select>
                                             <input
+                                                ref={galleryFileInputRef}
                                                 type="file"
-                                                accept="image/*"
-                                                onChange={(event) => setSelectedGalleryFile(event.target.files?.[0] || null)}
+                                                accept=".jpg,.jpeg,.png"
+                                                multiple
+                                                onChange={handleGalleryFileSelection}
                                                 className="block w-full text-sm text-gray-500 sm:w-auto sm:max-w-[320px] file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                                             />
                                             <button
                                                 onClick={handleUploadGalleryImage}
-                                                disabled={isGalleryUploading || !selectedGalleryFile || !selectedGalleryCategoryId}
+                                                disabled={isGalleryUploading || selectedGalleryFiles.length === 0 || !selectedGalleryCategoryId || !selectedGalleryUploadFolderId}
                                                 className="rounded-xl bg-blue-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
                                             >
                                                 {isGalleryUploading ? 'Uploading...' : 'Upload Image'}
                                             </button>
+                                        </div>
+                                        {selectedGalleryCategoryId && !selectedGalleryUploadHasFolders && (
+                                            <p className="mt-3 text-xs text-gray-500">
+                                                Create a folder in this category before uploading images.
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 mb-8">
+                                        <h4 className="text-lg font-bold text-gray-800 mb-4">Manage Gallery Folders</h4>
+                                        <div className="flex flex-wrap items-center justify-start gap-4">
+                                            <select
+                                                value={selectedGalleryFolderCategoryId}
+                                                onChange={(event) => setSelectedGalleryFolderCategoryId(event.target.value)}
+                                                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none sm:w-[220px]"
+                                            >
+                                                <option value="">Select category</option>
+                                                {galleryCategories.map((category) => (
+                                                    <option key={category.id} value={category.id}>
+                                                        {formatGalleryCategoryLabel(category.name)}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <input
+                                                type="text"
+                                                value={newGalleryFolderName}
+                                                onChange={(event) => setNewGalleryFolderName(event.target.value)}
+                                                placeholder="New folder name"
+                                                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none sm:w-[260px]"
+                                            />
+                                            <button
+                                                onClick={handleCreateGalleryFolder}
+                                                disabled={isGalleryFolderSaving || !selectedGalleryFolderCategoryId || !newGalleryFolderName.trim()}
+                                                className="rounded-xl bg-blue-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                                            >
+                                                {isGalleryFolderSaving ? 'Saving...' : 'Create Folder'}
+                                            </button>
+                                        </div>
+                                        <p className="mt-3 text-xs text-gray-500">
+                                            Create top-level folders here. Use the folder tree actions to add sub-folders, rename folders, or delete empty folders.
+                                        </p>
+
+                                        <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-4">
+                                            {!selectedGalleryFolderCategoryId ? (
+                                                <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-gray-400">
+                                                    Select a category to manage its folder hierarchy.
+                                                </div>
+                                            ) : selectedGalleryFolderManagerFolders.length === 0 ? (
+                                                <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-gray-400">
+                                                    No folders created for this category yet.
+                                                </div>
+                                            ) : (
+                                                <GalleryFolderTree
+                                                    folders={selectedGalleryFolderManagerFolders}
+                                                    imageCountsByFolder={galleryImageCountsByFolder}
+                                                    isBusy={isGalleryFolderSaving}
+                                                    onAddSubFolder={handleAddGallerySubFolder}
+                                                    onRenameFolder={handleRenameGalleryFolder}
+                                                    onDeleteFolder={handleDeleteGalleryFolder}
+                                                />
+                                            )}
                                         </div>
                                     </div>
 
@@ -2316,13 +2778,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                     )}
 
                                     <div className="space-y-8">
-                                        {galleryImagesByCategory.map(({ category, images }) => (
+                                        {galleryImagesByCategory.map(({ category, images, folderCount, folderOptions }) => (
                                             <section key={category.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                                                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
                                                     <div>
                                                         <h4 className="text-lg font-bold text-gray-800">{formatGalleryCategoryLabel(category.name)}</h4>
                                                         <p className="text-sm text-gray-500">
-                                                            {images.length} image{images.length === 1 ? '' : 's'} in this folder
+                                                            {images.length} image{images.length === 1 ? '' : 's'} | {folderCount} folder{folderCount === 1 ? '' : 's'} in this category
                                                         </p>
                                                     </div>
                                                 </div>
@@ -2342,14 +2804,33 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                                     <div className="text-xs text-gray-500">
                                                                         {image.uploaded_at ? formatRegistrationSubmittedAt(image.uploaded_at) : 'Recently uploaded'}
                                                                     </div>
+                                                                    <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500">
+                                                                        Folder: {image.folder_id ? (galleryFolderPathMap[image.folder_id] || 'Assigned folder') : 'Unassigned (category root)'}
+                                                                    </div>
                                                                     <select
                                                                         value={image.category_id}
-                                                                        onChange={(event) => handleMoveGalleryImage(image.id, Number(event.target.value))}
+                                                                        onChange={(event) => handleMoveGalleryImage(image.id, Number(event.target.value), null)}
                                                                         className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
                                                                     >
                                                                         {galleryCategories.map((galleryCategory) => (
                                                                             <option key={galleryCategory.id} value={galleryCategory.id}>
                                                                                 {formatGalleryCategoryLabel(galleryCategory.name)}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                    <select
+                                                                        value={image.folder_id ?? ''}
+                                                                        onChange={(event) => handleMoveGalleryImage(
+                                                                            image.id,
+                                                                            image.category_id,
+                                                                            event.target.value ? Number(event.target.value) : null
+                                                                        )}
+                                                                        className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                                    >
+                                                                        <option value="">Unassigned (category root)</option>
+                                                                        {folderOptions.map((folder) => (
+                                                                            <option key={folder.id} value={folder.id}>
+                                                                                {folder.pathLabel}
                                                                             </option>
                                                                         ))}
                                                                     </select>
