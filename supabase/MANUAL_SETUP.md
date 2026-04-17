@@ -1,6 +1,6 @@
 # Supabase Manual Setup Notes
 
-These notes cover the schema and storage modules added for the calendar time, pre-gallery, and dynamic gallery work.
+These notes cover the schema and storage modules added for the calendar time, calendar settings, pre-gallery, and dynamic gallery work.
 
 ## Storage Buckets
 
@@ -30,6 +30,10 @@ Expected table policies:
 - Authenticated `all` on `public.pregallery_images`
 - Public `select` on `public.gallery_categories`
 - Authenticated `all` on `public.gallery_categories`
+- Public `select` on `public.calendar_settings`
+- Authenticated `all` on `public.calendar_settings`
+- Public `select` on `public.gallery_folders`
+- Authenticated `all` on `public.gallery_folders`
 - Public `select` on `public.gallery_images`
 - Authenticated `all` on `public.gallery_images`
 
@@ -43,5 +47,8 @@ Expected storage policies:
 ## Legacy Record Compatibility
 
 - `public.calendar_events.event_time` is added as a nullable column, so existing calendar rows remain readable until times are backfilled.
+- `public.calendar_settings` uses a single-row settings record keyed at `id = 1`, so the public FY label stays separate from individual event rows.
 - The pre-gallery and gallery migrations are additive and do not drop or recreate existing content tables.
+- Gallery folders use a self-referencing `parent_folder_id`, so top-level folders and nested sub-folders can coexist without flattening existing category data.
+- `public.gallery_images.folder_id` is nullable, so existing gallery images stay valid even before they are assigned to a folder.
 - Seed inserts use conflict-safe behavior, so existing gallery category records are preserved.

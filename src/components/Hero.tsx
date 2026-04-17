@@ -11,7 +11,7 @@ import fitnessImg from '../assets/hero_slides/FITNESS_WORKSHOP.jpg';
 const slides = [
   {
     logo: heroLogo,
-    title: 'Building champions and fostering sporting excellence since 1995.',
+    title: 'Building champions and fostering sporting excellence since 1988.',
     subtitle: 'For decades, the club has empowered employees and families through competitive spirit, teamwork, and a culture of sporting excellence.',
     image: 'https://images.pexels.com/photos/3621788/pexels-photo-3621788.jpeg?auto=compress&cs=tinysrgb&w=1920'
   },

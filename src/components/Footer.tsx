@@ -66,7 +66,7 @@ export default function Footer({ onNavigate }: FooterProps) {
           <div className="border-t border-gray-200/50 pt-8 flex flex-col md:flex-row items-center justify-between">
             <div className="flex items-center gap-4 mb-4 md:mb-0">
               <p className="text-sm text-gray-600">
-                Copyright 2025 CESC Officers' Sports Club.
+                Copyright 2026 CESC Officers' Sports Club.
               </p>
               <button
                 onClick={() => onNavigate?.('admin-login')}
