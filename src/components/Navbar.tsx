@@ -15,10 +15,10 @@ export default function Navbar({ currentPage, onNavigate }: NavbarProps) {
   const menuItems = [
     { id: 'home', label: 'Home' },
     { id: 'about', label: 'About' },
+    { id: 'committee', label: 'Executive Committee' },
     { id: 'vision', label: 'Vision & Mission' },
     { id: 'gallery', label: 'Gallery' },
     { id: 'calendar', label: 'Calendar' },
-    { id: 'committee', label: 'Executive Committee' },
   ];
 
   return (
