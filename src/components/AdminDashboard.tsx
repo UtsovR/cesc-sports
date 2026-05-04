@@ -22,6 +22,19 @@ import {
     normalizeUpcomingEventDateValue,
     normalizeUpcomingEventTimeValue
 } from '../lib/upcomingEventDateTime';
+import {
+    createExecutiveCommitteeMember,
+    deleteExecutiveCommitteeMember,
+    fetchExecutiveCommitteeMembersAdmin,
+    getExecutiveCommitteeDuplicateKey,
+    getExecutiveCommitteeErrorMessage,
+    resolveExecutiveCommitteeImage,
+    updateExecutiveCommitteeMember,
+    uploadExecutiveCommitteeImage,
+    type ExecutiveCommitteeMember,
+    type ExecutiveCommitteeMemberPayload,
+    type ExecutiveCommitteeSection
+} from '../lib/executiveCommittee';
 
 const INITIAL_EVENTS = [
     { id: -1, sport: 'Tennis', event_name: "CHAIRMAN'S CUP", event_date: '2025-12-01', displayDate: "DEC-JAN'26", event_type: 'Internal' },
@@ -84,7 +97,8 @@ type ActiveTab =
     | 'gallery-manager'
     | 'pre-gallery'
     | 'about-cms'
-    | 'vision-cms';
+    | 'vision-cms'
+    | 'executive-committee-cms';
 
 type IconType = 'Bell' | 'Award' | 'TrendingUp' | 'Users';
 type CmsType = 'about' | 'vision';
@@ -159,6 +173,47 @@ interface GalleryImage {
 const PRE_GALLERY_SLOTS = [1, 2, 3] as const;
 type PreGallerySlot = typeof PRE_GALLERY_SLOTS[number];
 const GALLERY_CATEGORY_ORDER = ['cricket', 'football', 'badminton', 'lawn_tennis', 'table_tennis', 'workshops'] as const;
+const EXECUTIVE_COMMITTEE_SECTIONS: Array<{
+    section: ExecutiveCommitteeSection;
+    label: string;
+    editableTeam: boolean;
+    editableSport: boolean;
+    editableDescription: boolean;
+    allowAddDelete: boolean;
+}> = [
+    {
+        section: 'leadership',
+        label: 'Leadership',
+        editableTeam: false,
+        editableSport: false,
+        editableDescription: false,
+        allowAddDelete: true
+    },
+    {
+        section: 'general_secretary',
+        label: 'General Secretary',
+        editableTeam: false,
+        editableSport: false,
+        editableDescription: true,
+        allowAddDelete: false
+    },
+    {
+        section: 'sports_mentor',
+        label: 'Sports Mentors',
+        editableTeam: true,
+        editableSport: true,
+        editableDescription: false,
+        allowAddDelete: true
+    },
+    {
+        section: 'core_management',
+        label: 'Core Management & Operations',
+        editableTeam: true,
+        editableSport: false,
+        editableDescription: false,
+        allowAddDelete: true
+    }
+];
 
 const formatGalleryCategoryLabel = (name: string) => name
     .split('_')
@@ -203,6 +258,17 @@ const isAllowedGalleryUploadFile = (file: File) => {
         || normalizedMimeType === 'image/png'
         || GALLERY_ALLOWED_FILE_EXTENSIONS.has(fileExtension);
 };
+
+const parseExecutiveCommitteeTeamInput = (value: string) =>
+    value
+        .split(/[\n,]/)
+        .map(member => member.trim())
+        .filter(Boolean);
+
+const formatExecutiveCommitteeTeamInput = (team: string[]) => team.join(', ');
+
+const isFixedExecutiveCommitteeSection = (section: ExecutiveCommitteeSection) =>
+    section === 'leadership' || section === 'general_secretary';
 
 const formatSportsInterested = (sports: string | string[]) => {
     if (Array.isArray(sports)) {
@@ -294,6 +360,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     const [whatsNewItems, setWhatsNewItems] = useState<WhatsNewItem[]>([]);
     const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
     const [hallOfFameEntries, setHallOfFameEntries] = useState<HallOfFameEntry[]>([]);
+    const [executiveCommitteeMembers, setExecutiveCommitteeMembers] = useState<ExecutiveCommitteeMember[]>([]);
     const [aboutImages, setAboutImages] = useState<CmsImage[]>([]);
     const [visionImages, setVisionImages] = useState<CmsImage[]>([]);
     const [loading, setLoading] = useState(true);
@@ -358,6 +425,10 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     const [selectedAboutFile, setSelectedAboutFile] = useState<File | null>(null);
     const [selectedVisionFile, setSelectedVisionFile] = useState<File | null>(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [executiveCommitteeMessage, setExecutiveCommitteeMessage] = useState('');
+    const [executiveCommitteeError, setExecutiveCommitteeError] = useState('');
+    const [executiveCommitteeSavingId, setExecutiveCommitteeSavingId] = useState<string | null>(null);
+    const [selectedExecutiveCommitteeFiles, setSelectedExecutiveCommitteeFiles] = useState<Record<string, File | null>>({});
 
     const fetchData = useCallback(async () => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -380,10 +451,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 supabase.from('gallery_images').select('*').order('uploaded_at', { ascending: false }),
                 supabase.from('pregallery_images').select('*').order('display_order', { ascending: true }),
                 supabase.from('about_images').select('*').order('created_at', { ascending: false }),
-                supabase.from('vision_images').select('*').order('created_at', { ascending: false })
+                supabase.from('vision_images').select('*').order('created_at', { ascending: false }),
+                fetchExecutiveCommitteeMembersAdmin()
+                    .then(data => ({ data, error: null }))
+                    .catch(error => ({ data: [] as ExecutiveCommitteeMember[], error }))
             ]);
 
-            const [regs, fbs, cal, cs, wn, up, hf, gc, gf, gi, pgi, ai, vi] = results;
+            const [regs, fbs, cal, cs, wn, up, hf, gc, gf, gi, pgi, ai, vi, ecm] = results;
 
             if (regs.error) {
                 setRegistrationsError(`Failed to load registrations: ${regs.error.message}`);
@@ -419,6 +493,12 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                 setGalleryError('');
             }
 
+            if (ecm.error) {
+                setExecutiveCommitteeError(`Failed to load executive committee CMS data: ${getErrorMessage(ecm.error)}`);
+            } else {
+                setExecutiveCommitteeError('');
+            }
+
             setRegistrations(regs.data || []);
             setFeedbacks(fbs.data || []);
             setCalendarEvents([
@@ -435,6 +515,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             setPreGalleryImages((pgi.data || []) as PreGalleryImage[]);
             setAboutImages(ai.data || []);
             setVisionImages(vi.data || []);
+            setExecutiveCommitteeMembers(ecm.data || []);
 
         } catch (error) {
             setRegistrationsError('Failed to load registrations.');
@@ -442,6 +523,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             setCalendarError('Failed to load calendar events.');
             setGalleryError('Failed to load gallery manager data.');
             setPreGalleryError('Failed to load pre-gallery images.');
+            setExecutiveCommitteeError('Failed to load executive committee CMS data.');
             console.error('Error fetching admin data:', error);
         } finally {
             setLoading(false);
@@ -867,6 +949,232 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             if (!error) setHallOfFameEntries(data || []);
         } catch (error) {
             console.error('Failed to refresh hall of fame entries', error);
+        }
+    };
+
+    const fetchExecutiveCommitteeCmsMembers = async () => {
+        try {
+            const members = await fetchExecutiveCommitteeMembersAdmin();
+            setExecutiveCommitteeMembers(members);
+            setExecutiveCommitteeError('');
+        } catch (error) {
+            console.error('Failed to refresh executive committee CMS data', error);
+            setExecutiveCommitteeError(`Failed to load executive committee CMS data: ${getErrorMessage(error)}`);
+        }
+    };
+
+    const handleExecutiveCommitteeFieldChange = (
+        id: string,
+        field: keyof ExecutiveCommitteeMember,
+        value: ExecutiveCommitteeMember[keyof ExecutiveCommitteeMember]
+    ) => {
+        setExecutiveCommitteeMembers(currentMembers => currentMembers.map(member => (
+            member.id === id
+                ? {
+                    ...member,
+                    [field]: value
+                }
+                : member
+        )));
+    };
+
+    const handleExecutiveCommitteeFileSelection = (id: string, event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0] || null;
+
+        if (file && !isAllowedGalleryUploadFile(file)) {
+            event.target.value = '';
+            setExecutiveCommitteeMessage('Upload failed: only JPG and PNG files are allowed.');
+            return;
+        }
+
+        setExecutiveCommitteeMessage('');
+        setSelectedExecutiveCommitteeFiles(currentFiles => ({
+            ...currentFiles,
+            [id]: file
+        }));
+    };
+
+    const buildExecutiveCommitteePayload = (
+        member: ExecutiveCommitteeMember,
+        imageUrl: string | null
+    ): ExecutiveCommitteeMemberPayload => ({
+        section: member.section,
+        name: member.name.trim(),
+        designation: member.section === 'sports_mentor'
+            ? null
+            : (member.designation?.trim() || null),
+        sport: member.section === 'sports_mentor' ? (member.sport?.trim() || null) : null,
+        team: member.section === 'sports_mentor' || member.section === 'core_management' ? member.team : null,
+        description: member.section === 'general_secretary' ? (member.description?.trim() || null) : null,
+        image_url: imageUrl,
+        display_order: Number(member.display_order) || 0,
+        is_active: isFixedExecutiveCommitteeSection(member.section) ? true : member.is_active
+    });
+
+    const validateExecutiveCommitteeMember = (member: ExecutiveCommitteeMember) => {
+        if (!member.name.trim()) {
+            return 'Name is required.';
+        }
+
+        if (!member.section) {
+            return 'Section is required.';
+        }
+
+        if ((member.section === 'leadership' || member.section === 'general_secretary') && !member.designation?.trim()) {
+            return 'Designation is required.';
+        }
+
+        if (member.section === 'sports_mentor' && !member.sport?.trim()) {
+            return 'Sport is required.';
+        }
+
+        if (member.section === 'core_management' && !member.designation?.trim()) {
+            return 'Post / responsibility is required.';
+        }
+
+        return '';
+    };
+
+    const buildNewExecutiveCommitteeMemberPayload = (
+        section: ExecutiveCommitteeSection,
+        displayOrder: number
+    ): ExecutiveCommitteeMemberPayload => {
+        if (section === 'leadership') {
+            return {
+                section,
+                name: 'New Member',
+                designation: 'Designation',
+                sport: null,
+                team: null,
+                description: null,
+                image_url: null,
+                display_order: displayOrder,
+                is_active: true
+            };
+        }
+
+        if (section === 'general_secretary') {
+            return {
+                section,
+                name: 'New Member',
+                designation: 'Designation',
+                sport: null,
+                team: null,
+                description: '',
+                image_url: null,
+                display_order: displayOrder,
+                is_active: true
+            };
+        }
+
+        return {
+            section,
+            name: 'New Member',
+            designation: section === 'core_management' ? 'Post / Responsibility' : null,
+            sport: section === 'sports_mentor' ? 'Sport' : null,
+            team: [],
+            description: null,
+            image_url: null,
+            display_order: displayOrder,
+            is_active: false
+        };
+    };
+
+    const handleSaveExecutiveCommitteeMember = async (member: ExecutiveCommitteeMember) => {
+        const validationMessage = validateExecutiveCommitteeMember(member);
+        if (validationMessage) {
+            setExecutiveCommitteeMessage(validationMessage);
+            return;
+        }
+
+        const memberDuplicateKey = getExecutiveCommitteeDuplicateKey(member);
+        const hasDuplicate = executiveCommitteeMembers.some(currentMember => (
+            currentMember.id !== member.id
+            && getExecutiveCommitteeDuplicateKey(currentMember) === memberDuplicateKey
+        ));
+
+        if (hasDuplicate) {
+            setExecutiveCommitteeMessage('This member already exists in this section.');
+            return;
+        }
+
+        setExecutiveCommitteeSavingId(member.id);
+        setExecutiveCommitteeMessage('Saving member...');
+
+        try {
+            const selectedFile = selectedExecutiveCommitteeFiles[member.id];
+            const imageUrl = selectedFile
+                ? await uploadExecutiveCommitteeImage(member.id, member.section, selectedFile)
+                : member.image_url;
+
+            await updateExecutiveCommitteeMember(member.id, buildExecutiveCommitteePayload(member, imageUrl));
+
+            setSelectedExecutiveCommitteeFiles(currentFiles => ({
+                ...currentFiles,
+                [member.id]: null
+            }));
+            setExecutiveCommitteeMessage('Executive committee member updated successfully!');
+            void fetchExecutiveCommitteeCmsMembers();
+            setTimeout(() => setExecutiveCommitteeMessage(''), 3000);
+        } catch (error) {
+            console.error('Executive committee save error:', error);
+            setExecutiveCommitteeMessage(`Save failed: ${getExecutiveCommitteeErrorMessage(error, 'Save failed. Please check console.')}`);
+        } finally {
+            setExecutiveCommitteeSavingId(null);
+        }
+    };
+
+    const handleAddExecutiveCommitteeMember = async (section: ExecutiveCommitteeSection) => {
+        const nextDisplayOrder = Math.max(
+            0,
+            ...executiveCommitteeMembers
+                .filter(member => member.section === section)
+                .map(member => member.display_order)
+        ) + 1;
+
+        const newMember = buildNewExecutiveCommitteeMemberPayload(section, nextDisplayOrder);
+
+        const newMemberDuplicateKey = getExecutiveCommitteeDuplicateKey(newMember);
+        const hasDuplicate = executiveCommitteeMembers.some(member => (
+            getExecutiveCommitteeDuplicateKey(member) === newMemberDuplicateKey
+        ));
+
+        if (hasDuplicate) {
+            setExecutiveCommitteeMessage('This member already exists in this section.');
+            return;
+        }
+
+        setExecutiveCommitteeMessage('Adding member...');
+
+        try {
+            const createdMember = await createExecutiveCommitteeMember(newMember);
+            setExecutiveCommitteeMembers(currentMembers => [...currentMembers, createdMember]);
+            setExecutiveCommitteeMessage('Member added. Edit the details and save changes.');
+            setTimeout(() => setExecutiveCommitteeMessage(''), 3000);
+        } catch (error) {
+            console.error('Executive Committee Add Error:', error);
+            setExecutiveCommitteeMessage(`Add failed: ${getExecutiveCommitteeErrorMessage(error, 'Add failed. Please check console.')}`);
+        }
+    };
+
+    const handleDeleteExecutiveCommitteeMember = async (member: ExecutiveCommitteeMember) => {
+        if (!confirm('Are you sure you want to delete this committee member?')) {
+            return;
+        }
+
+        try {
+            await deleteExecutiveCommitteeMember(member.id);
+            setExecutiveCommitteeMembers(currentMembers => currentMembers.filter(currentMember => currentMember.id !== member.id));
+            setSelectedExecutiveCommitteeFiles(currentFiles => {
+                const nextFiles = { ...currentFiles };
+                delete nextFiles[member.id];
+                return nextFiles;
+            });
+            setExecutiveCommitteeMessage('Member deleted successfully.');
+            setTimeout(() => setExecutiveCommitteeMessage(''), 3000);
+        } catch (error) {
+            console.error('Executive committee delete error:', error);
+            setExecutiveCommitteeMessage(`Delete failed: ${getExecutiveCommitteeErrorMessage(error, 'Delete failed. Please check console.')}`);
         }
     };
 
@@ -1762,6 +2070,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                         >
                             <span className="font-bold">🎯</span> Vision CMS
                             <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{visionImages.length}</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('executive-committee-cms')}
+                            className={`flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'executive-committee-cms' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            <Users size={18} /> Executive Committee CMS
+                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{executiveCommitteeMembers.length}</span>
                         </button>
                     </div>
 
@@ -2932,6 +3247,207 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                                                         </button>
                                                     </div>
                                                 </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'executive-committee-cms' && (
+                                <div className="p-6">
+                                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
+                                        <div>
+                                            <h3 className="text-xl font-bold text-gray-800">Executive Committee CMS</h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                {executiveCommitteeMembers.length} committee record{executiveCommitteeMembers.length === 1 ? '' : 's'} managed.
+                                            </p>
+                                        </div>
+                                        {executiveCommitteeMessage && (
+                                            <span className={`text-sm px-3 py-1 rounded-full self-start ${executiveCommitteeMessage.includes('failed') || executiveCommitteeMessage.includes('required') || executiveCommitteeMessage.includes('already exists') ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+                                                {executiveCommitteeMessage}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {executiveCommitteeError && (
+                                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                                            {executiveCommitteeError}
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-8">
+                                        {EXECUTIVE_COMMITTEE_SECTIONS.map((sectionConfig) => {
+                                            const sectionMembers = executiveCommitteeMembers
+                                                .filter(member => member.section === sectionConfig.section)
+                                                .sort((first, second) => first.display_order - second.display_order);
+
+                                            return (
+                                                <section key={sectionConfig.section} className="rounded-2xl border border-gray-200 bg-gray-50 p-5">
+                                                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
+                                                        <div>
+                                                            <h4 className="text-lg font-bold text-gray-800">{sectionConfig.label}</h4>
+                                                            <p className="text-sm text-gray-500">
+                                                                {sectionMembers.length} record{sectionMembers.length === 1 ? '' : 's'}
+                                                            </p>
+                                                        </div>
+                                                        {sectionConfig.allowAddDelete && (
+                                                            <button
+                                                                onClick={() => handleAddExecutiveCommitteeMember(sectionConfig.section)}
+                                                                className="self-start rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                                                            >
+                                                                Add Member
+                                                            </button>
+                                                        )}
+                                                    </div>
+
+                                                    {sectionMembers.length === 0 && (
+                                                        <div className="rounded-xl border-2 border-dashed border-gray-200 bg-white px-6 py-8 text-center text-sm text-gray-400">
+                                                            No records found for this section.
+                                                        </div>
+                                                    )}
+
+                                                    <div className="grid gap-5 lg:grid-cols-2">
+                                                        {sectionMembers.map((member) => {
+                                                            const imagePreview = resolveExecutiveCommitteeImage(member.image_url);
+                                                            const isSavingMember = executiveCommitteeSavingId === member.id;
+
+                                                            return (
+                                                                <div key={member.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                                                                    <div className="grid gap-4 md:grid-cols-[96px_1fr]">
+                                                                        <div>
+                                                                            <div className="h-24 w-24 overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                                                                {imagePreview ? (
+                                                                                    <img
+                                                                                        src={imagePreview}
+                                                                                        alt={member.name}
+                                                                                        className="h-full w-full object-cover"
+                                                                                    />
+                                                                                ) : (
+                                                                                    <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">
+                                                                                        No image
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="grid gap-4 md:grid-cols-2">
+                                                                            <div>
+                                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                                                    value={member.name}
+                                                                                    onChange={(event) => handleExecutiveCommitteeFieldChange(member.id, 'name', event.target.value)}
+                                                                                />
+                                                                            </div>
+
+                                                                            {!sectionConfig.editableSport && (
+                                                                                <div>
+                                                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                                                        {member.section === 'core_management' ? 'Post / Responsibility' : 'Designation'}
+                                                                                    </label>
+                                                                                    <input
+                                                                                        type="text"
+                                                                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                                                        value={member.designation || ''}
+                                                                                        onChange={(event) => handleExecutiveCommitteeFieldChange(member.id, 'designation', event.target.value)}
+                                                                                    />
+                                                                                </div>
+                                                                            )}
+
+                                                                            {sectionConfig.editableSport && (
+                                                                                <div>
+                                                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Sport</label>
+                                                                                    <input
+                                                                                        type="text"
+                                                                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                                                        value={member.sport || ''}
+                                                                                        onChange={(event) => handleExecutiveCommitteeFieldChange(member.id, 'sport', event.target.value)}
+                                                                                    />
+                                                                                </div>
+                                                                            )}
+
+                                                                            <div>
+                                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Display Order</label>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                                                    value={member.display_order}
+                                                                                    onChange={(event) => handleExecutiveCommitteeFieldChange(member.id, 'display_order', Number(event.target.value))}
+                                                                                />
+                                                                            </div>
+
+                                                                            {sectionConfig.editableTeam && (
+                                                                                <div className="md:col-span-2">
+                                                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
+                                                                                    <textarea
+                                                                                        rows={2}
+                                                                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                                                        value={formatExecutiveCommitteeTeamInput(member.team)}
+                                                                                        onChange={(event) => handleExecutiveCommitteeFieldChange(member.id, 'team', parseExecutiveCommitteeTeamInput(event.target.value))}
+                                                                                    />
+                                                                                </div>
+                                                                            )}
+
+                                                                            {sectionConfig.editableDescription && (
+                                                                                <div className="md:col-span-2">
+                                                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                                                                                    <textarea
+                                                                                        rows={2}
+                                                                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                                                        value={member.description || ''}
+                                                                                        onChange={(event) => handleExecutiveCommitteeFieldChange(member.id, 'description', event.target.value)}
+                                                                                    />
+                                                                                </div>
+                                                                            )}
+
+                                                                            <div className="md:col-span-2">
+                                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Photo</label>
+                                                                                <input
+                                                                                    type="file"
+                                                                                    accept="image/*"
+                                                                                    onChange={(event) => handleExecutiveCommitteeFileSelection(member.id, event)}
+                                                                                    className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-full file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
+                                                                                />
+                                                                            </div>
+
+                                                                            {!isFixedExecutiveCommitteeSection(member.section) && (
+                                                                                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                                                                                    <input
+                                                                                        type="checkbox"
+                                                                                        checked={member.is_active}
+                                                                                        onChange={(event) => handleExecutiveCommitteeFieldChange(member.id, 'is_active', event.target.checked)}
+                                                                                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                                                    />
+                                                                                    Active
+                                                                                </label>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                                                                        {member.section !== 'general_secretary' && (
+                                                                            <button
+                                                                                onClick={() => handleDeleteExecutiveCommitteeMember(member)}
+                                                                                className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
+                                                                            >
+                                                                                Delete
+                                                                            </button>
+                                                                        )}
+                                                                        <button
+                                                                            onClick={() => handleSaveExecutiveCommitteeMember(member)}
+                                                                            disabled={isSavingMember}
+                                                                            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                                                                        >
+                                                                            {isSavingMember ? 'Saving...' : 'Save Changes'}
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </section>
                                             );
                                         })}
                                     </div>
