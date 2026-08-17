@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import heroLogo from '../../logo/logo_main.png';
+import heroLogo from '../../logo/logoMain.png';
 import badmintonImg from '../assets/hero_slides/Badminton.JPG';
 import cricketImg from '../assets/hero_slides/Cricket.JPG';
 import footballImg from '../assets/hero_slides/Football.jpg';

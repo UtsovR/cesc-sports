@@ -1,7 +1,7 @@
 import { Menu, X } from 'lucide-react';
 import { useState } from 'react';
 import cescLogo from '../assets/logo/logo-cesc-new - Copy.png';
-import heroLogo from '../../logo/logo_main.png';
+import heroLogo from '../../logo/logoMain.png';
 import rpsgLogo from '../../logo/RPSG_Logo_main.png';
 
 interface NavbarProps {
